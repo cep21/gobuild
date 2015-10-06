@@ -23,6 +23,22 @@ type macro struct {
 	Goget *string `toml:"goget"`
 	CrossDirectory *bool `toml:"cross-directory"`
 	IfFiles []string `toml:"if-files"`
+	AppendFiles bool `toml:"append-files"`
+}
+
+func (m *macro) ifFilesMatcher() (filenameMatcher, error) {
+	if m.IfFiles == nil || len(m.IfFiles) == 0 {
+		return trueMatcher{}, nil
+	}
+	r := []filenameMatcher{}
+	for _, f := range m.IfFiles {
+		reg, err := regexp.Compile(f)
+		if err != nil {
+			return nil, err
+		}
+		r = append(r, &endingMatchesRegexMatcher{reg: reg})
+	}
+	return anyMatches(r), nil
 }
 
 func (m *macro) mergeFrom(from macro) {
@@ -49,7 +65,7 @@ type command struct {
 }
 
 func (g *gobuildInfo) StopCheck() (filenameMatcher, error) {
-	return &directoryContainsMatcher{g.Vars["stop_loading_parent"].(string)}, nil
+	return &directoryContainsMatcher{g.Vars["stop_loading_parent"].([]string)}, nil
 }
 
 type directoryContainsMatcher struct {
@@ -89,7 +105,7 @@ func (g *gobuildInfo) ignoredPaths() (filenameMatcher, error) {
 		if err != nil {
 			return nil, err
 		}
-		ret = append(ret, endingMatchesRegexMatcher{
+		ret = append(ret, &endingMatchesRegexMatcher{
 			reg:reg,
 		})
 	}
@@ -130,7 +146,7 @@ type GroupToRun struct {
 
 func (g *Gobuild) main() error {
 	f := flagParser{
-		flags: flag.NewFlagSet("flag_parser", flag.ErrHelp),
+		flags: flag.NewFlagSet("flag_parser", flag.ExitOnError),
 	}
 	cmdToRun, paths, err := f.Parse(os.Args)
 	if err != nil {
@@ -166,6 +182,17 @@ func (g *Gobuild) main() error {
 		}
 	}
 
+	execCmd, err := getExecCommands(cmdToRun, groupsToRun)
+	if err != nil {
+		return err
+	}
+
+	for pi, phase := range execCmd {
+		fmt.Printf("Phase %d\n", pi)
+		for _, cmd := range phase {
+			fmt.Printf("%s\n", cmd)
+		}
+	}
 
 	return nil
 }
@@ -221,9 +248,9 @@ func (i *installCommand) install(ctx context.Context) error {
 
 func installsForTemplate(arg string, t *gobuildInfo) (map[string]*installCommand, error) {
 	installMap := make(map[string]*installCommand)
-	cmd, err := t.command(arg)
-	if err != nil {
-		return nil, err
+	cmd, exists := t.command(arg)
+	if !exists {
+		return nil, errUnknownCommand(arg)
 	}
 	for _, macroName := range cmd.Macros {
 		m := t.Macros[macroName]
@@ -242,20 +269,57 @@ func installsForTemplate(arg string, t *gobuildInfo) (map[string]*installCommand
 			installMap[k] = v
 		}
 	}
-	return installMap
+	return installMap, nil
 }
 
 func getExecCommands(cmd string, groupsToRun []*GroupToRun) ([][]*cmdInDir, error) {
-	phases := [][]*cmdInDir{}
+	thisPhase := make([]*cmdInDir, 0, len(groupsToRun))
+	phases := [][]*cmdInDir{thisPhase}
 	for _, g := range groupsToRun {
 		cmdToRun, exists := g.tmpl.command(cmd)
 		if !exists {
 			return nil, errUnknownCommand(cmd)
 		}
 		for _, m := range cmdToRun.Macros {
+			macro := g.tmpl.Macros[m]
+			ifFilesMatcher, err := macro.ifFilesMatcher()
+			if err != nil {
+				return nil, err
+			}
+			matchedFiles := make([]string, 0, len(g.files))
+			for _, file := range g.files {
+				if ifFilesMatcher.Matches(file) {
+					matchedFiles = append(matchedFiles, file)
+				}
+			}
+			if len(matchedFiles) == 0 {
+				continue
+			}
+			cmd := cmdInDir{
+				cmd: *macro.Cmd,
+				args: append([]string{}, macro.Args...),
+				cwd: g.cwd,
+			}
+			if macro.AppendFiles {
+				cmd.args = append(cmd.args, matchedFiles...)
+			}
+			thisPhase = append(thisPhase, &cmd)
+		}
+		for _, runNext := range cmdToRun.RunNext {
+			nextPhase, err := getExecCommands(runNext, []*GroupToRun{g})
+			if err != nil {
+				return nil, err
+			}
+			for i, phase := range nextPhase {
+				phaseIndex := i + 1
+				if len(phases) == phaseIndex {
+					phases = append(phases, []*cmdInDir{})
+				}
+				phases[phaseIndex] = append(phases[phaseIndex], phase...)
+			}
 		}
 	}
-	return phases
+	return phases, nil
 }
 
 func getInstallCommands(groupsToRun []*GroupToRun, arg string) ([]*installCommand, error) {
@@ -299,7 +363,7 @@ func groupFiles(paths []string, templateMap templateFinder) ([]*GroupToRun, erro
 	for _, v := range ret {
 		r = append(r, v)
 	}
-	return r
+	return r, nil
 }
 
 func commandExistsForPaths(cmd string, paths[]*GroupToRun, templateMap templateFinder) error {
@@ -328,17 +392,17 @@ func (e errUnknownCommand) Error() string {
 }
 
 type flagParser struct {
-	flags flag.FlagSet
+	flags *flag.FlagSet
 }
 
 var defaultPaths = []string{"./..."}
 
 func (f *flagParser) Parse(args []string) (string, []string, error){
 	if err := f.flags.Parse(args); err != nil {
-		return nil, nil, err
+		return "", nil, err
 	}
 	if f.flags.NArg() == 0 {
-		return nil, defaultPaths, nil
+		return "", defaultPaths, nil
 	}
 	return f.flags.Args()[0], f.flags.Args()[1:], nil
 }
@@ -400,14 +464,13 @@ func (t *templateFinder) loadInDir(dirname string) (*gobuildInfo, error) {
 	if thisDirectoryBuildInfo == nil {
 		t.templatesForDirectories[dirname] = parentInfo
 	} else {
-		t.templatesForDirectories[dirname] = (&gobuildInfo{}).overrideFrom(parentInfo).overrideFrom(thisDirectoryBuildInfo)
+		t.templatesForDirectories[dirname] = (&gobuildInfo{}).overrideFrom(*parentInfo).overrideFrom(*thisDirectoryBuildInfo)
 	}
 	return t.templatesForDirectories[dirname], nil
 }
 
-
 func terminatingDirectoryName(dirname string) bool {
-	return dirname == "" || dirname == "." || dirname == filepath.Separator
+	return dirname == "" || dirname == "." || dirname == string(filepath.Separator)
 }
 
 func mustTomlDecode(s string, into interface{}) toml.MetaData {
@@ -435,6 +498,12 @@ type endingMatchesRegexMatcher struct {
 
 func (e *endingMatchesRegexMatcher) Matches(filename string) bool {
 	return e.reg.MatchString(filepath.Base(filename))
+}
+
+type trueMatcher struct{}
+
+func (t trueMatcher) Matches(filename string) bool {
+	return true
 }
 
 type anyMatches []filenameMatcher
@@ -474,14 +543,14 @@ func expandPaths(templateMap templateFinder, paths []string) ([]string, error) {
 				}
 
 				if !i.IsDir() {
-					files[finalPath] = struct{}
+					files[finalPath] = struct{}{}
 				}
 				return nil
 			}); err != nil {
 				return nil, err
 			}
 		} else {
-			files[filepath.Clean(path)] = struct{}
+			files[filepath.Clean(path)] = struct{}{}
 		}
 	}
 	out := make([]string, 0, len(files))
@@ -497,6 +566,10 @@ type cmdInDir struct {
 	cmd string
 	args []string
 	cwd string
+}
+
+func (c *cmdInDir) String() string {
+	return fmt.Sprintf("CWD=%s %s %s", c.cwd, c.cmd, strings.Join(c.args, " "))
 }
 
 func streamLines(input io.Reader, into chan <- string, wg *sync.WaitGroup) {
