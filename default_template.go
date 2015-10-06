@@ -11,7 +11,7 @@ var defaultTemplate = `
 [vars]
   duplthreshold = 75
   min_confidence = 0.8
-  ignoreDirs = ["vendor", "Godeps", "^\..*$"]
+  ignoreDirs = ["^vendor$", "^Godeps$", "^\..*$"]
   default = "fix"
   buildfileName = "gobuild.toml"
   stop_loading_parent = [".git"]
@@ -31,8 +31,8 @@ var defaultTemplate = `
 [macro.dupl]
   cmd="dupl"
   goget="github.com/mibk/dupl"
-  args=["-plumbing", "-threshold", "{duplthreshold}", "."]
-  only-at-root=true
+  args=["-plumbing", "-threshold", "{duplthreshold}", "{path-go}"]
+  cross-directory=true
 
 [macro.errcheck]
   cmd="errcheck"

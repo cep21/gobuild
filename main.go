@@ -14,13 +14,14 @@ import (
 	"path/filepath"
 	"sort"
 	"flag"
+	"regexp"
 )
 
 type macro struct {
 	Cmd *string `toml:"cmd"`
 	Args []string `toml:"args"`
 	Goget *string `toml:"goget"`
-	OnlyAtRoot *bool `toml:"only-at-root"`
+	CrossDirectory *bool `toml:"cross-directory"`
 	IfFiles []string `toml:"if-files"`
 }
 
@@ -34,8 +35,8 @@ func (m *macro) mergeFrom(from macro) {
 	if from.Goget != nil{
 		m.Goget = from.Goget
 	}
-	if from.OnlyAtRoot != nil {
-		m.OnlyAtRoot = from.OnlyAtRoot
+	if from.CrossDirectory != nil {
+		m.CrossDirectory = from.CrossDirectory
 	}
 	if from.IfFiles != nil {
 		m.IfFiles = from.IfFiles
@@ -75,6 +76,26 @@ func (g *gobuildInfo) buildfileName() string {
 	return g.Vars["buildfileName"].(string)
 }
 
+func (g *gobuildInfo) command(name string) (command, bool) {
+	c, exists := g.Commands[name]
+	return c, exists
+}
+
+func (g *gobuildInfo) ignoredPaths() (filenameMatcher, error) {
+	ignoreVars := g.Vars["ignoreDirs"].([]string)
+	ret := make([]filenameMatcher, 0, len(ignoreVars))
+	for _, dir := range ignoreVars {
+		reg, err := regexp.Compile(dir)
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, endingMatchesRegexMatcher{
+			reg:reg,
+		})
+	}
+	return anyMatches(ret), nil
+}
+
 // mergeFrom will merge into this build info data from another build info.  from will overwrite any
 // information already in g, so it is the more important version
 func (g *gobuildInfo) overrideFrom(from gobuildInfo) *gobuildInfo{
@@ -97,10 +118,17 @@ func (g *gobuildInfo) overrideFrom(from gobuildInfo) *gobuildInfo{
 func main() {
 }
 
-type Gobuild struct{}
+type Gobuild struct{
+	templateMap templateFinder
+}
+
+type GroupToRun struct {
+	cwd string
+	files []string
+	tmpl *gobuildInfo
+}
 
 func (g *Gobuild) main() error {
-	g := gobuildInfo{}
 	f := flagParser{
 		flags: flag.NewFlagSet("flag_parser", flag.ErrHelp),
 	}
@@ -108,18 +136,189 @@ func (g *Gobuild) main() error {
 	if err != nil {
 		return nil
 	}
-	t := TomlLoader{}
-	primaryTemplate, err := t.fullyLoad(defaultDecodedTemplate)
+
+	filesToCheck, err := expandPaths(g.templateMap, paths)
 	if err != nil {
 		return err
 	}
 
-	loadedCommand, ok := primaryTemplate.Commands[cmdToRun]
-	if !ok {
-		errUnknownCommand(cmdToRun)
+	// Group every file by directory
+	groupsToRun, err := groupFiles(filesToCheck, g.templateMap)
+
+	// Make sure the command to run is defined for every file you want to check.
+	if err := commandExistsForPaths(cmdToRun, groupsToRun, g.templateMap); err != nil {
+		return err
 	}
 
-	expandPaths(primaryTemplate, paths, ignorePaths, matchesPaths)
+	installs, err := getInstallCommands(groupsToRun, cmdToRun)
+	if err != nil {
+		return err
+	}
+
+	installs = condenseInstallCommands(installs)
+
+	ctx := context.Background()
+
+	// First step, setup installs if needed
+	for _, i := range installs {
+		if err := i.install(ctx); err != nil {
+			return err
+		}
+	}
+
+
+	return nil
+}
+
+func condenseInstallCommands(installs []*installCommand) []*installCommand {
+	ret := make([]*installCommand, 0, len(installs))
+	allGoGetPaths := make([]string, 0, len(installs))
+
+	for _, i := range installs {
+		if i.shouldInstall() && i.goGetPath != "" {
+			allGoGetPaths = append(allGoGetPaths, i.goGetPath)
+		} else if i.shouldInstall() {
+			ret = append(ret, i)
+		}
+	}
+	if len(allGoGetPaths) != 0 {
+		ret = append(ret, &installCommand{
+			installArgs: append([]string{"go", "get"}, allGoGetPaths...),
+		})
+	}
+	return ret
+}
+
+type installCommand struct {
+	checkExists string
+	installArgs []string
+	goGetPath string
+}
+
+func (i *installCommand) shouldInstall() bool {
+	path, err := exec.LookPath(i.checkExists)
+	return path == "" || err != nil
+}
+
+func (i *installCommand) install(ctx context.Context) error {
+	cmd := cmdInDir{
+		cmd: i.installArgs[0],
+		args: i.installArgs[1:],
+		cwd: "",
+	}
+	stderr := make(chan string)
+	stdout := make(chan string)
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+	defer wg.Wait()
+	defer close(stderr)
+	defer close(stdout)
+	go streamInto(stderr, os.Stderr, &wg)
+	go streamInto(stdout, os.Stderr, &wg)
+
+	return cmd.exec(ctx, stdout, stderr)
+}
+
+func installsForTemplate(arg string, t *gobuildInfo) (map[string]*installCommand, error) {
+	installMap := make(map[string]*installCommand)
+	cmd, err := t.command(arg)
+	if err != nil {
+		return nil, err
+	}
+	for _, macroName := range cmd.Macros {
+		m := t.Macros[macroName]
+		installMap[*m.Cmd] = &installCommand{
+			checkExists: *m.Cmd,
+			installArgs: []string{"go", "get", "-u", *m.Goget},
+			goGetPath: *m.Goget,
+		}
+	}
+	for _, n := range cmd.RunNext {
+		m, err := installsForTemplate(n, t)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range m {
+			installMap[k] = v
+		}
+	}
+	return installMap
+}
+
+func getExecCommands(cmd string, groupsToRun []*GroupToRun) ([][]*cmdInDir, error) {
+	phases := [][]*cmdInDir{}
+	for _, g := range groupsToRun {
+		cmdToRun, exists := g.tmpl.command(cmd)
+		if !exists {
+			return nil, errUnknownCommand(cmd)
+		}
+		for _, m := range cmdToRun.Macros {
+		}
+	}
+	return phases
+}
+
+func getInstallCommands(groupsToRun []*GroupToRun, arg string) ([]*installCommand, error) {
+	installMap := make(map[string]*installCommand)
+	for _, g := range groupsToRun {
+		m, err := installsForTemplate(arg, g.tmpl)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range m {
+			installMap[k] = v
+		}
+	}
+	ret := make([]*installCommand, 0, len(installMap))
+	for _, m := range installMap {
+		ret = append(ret, m)
+	}
+	return ret, nil
+}
+
+func groupFiles(paths []string, templateMap templateFinder) ([]*GroupToRun, error) {
+	ret := make(map[string]*GroupToRun)
+	for _, p := range paths {
+		dir := filepath.Dir(p)
+		if g, exists := ret[dir]; exists {
+			g.files = append(g.files, p)
+			continue
+		}
+
+		t, err := templateMap.loadInDir(p)
+		if err != nil {
+			return nil, err
+		}
+		ret[dir] = &GroupToRun{
+			cwd: dir,
+			files: []string{p},
+			tmpl: t,
+		}
+	}
+	r := make([]*GroupToRun, 0, len(ret))
+	for _, v := range ret {
+		r = append(r, v)
+	}
+	return r
+}
+
+func commandExistsForPaths(cmd string, paths[]*GroupToRun, templateMap templateFinder) error {
+	for _, p := range paths {
+		t, err := templateMap.loadInDir(p.cwd)
+		if err != nil {
+			return err
+		}
+		macro, exists := t.command(cmd)
+		if !exists {
+			return errUnknownCommand(cmd)
+		}
+		for _, m := range macro.Macros {
+			if _, exists := t.Macros[m]; !exists {
+				return errUnknownCommand(m)
+			}
+		}
+	}
+	return nil
 }
 
 type errUnknownCommand string
@@ -144,37 +343,13 @@ func (f *flagParser) Parse(args []string) (string, []string, error){
 	return f.flags.Args()[0], f.flags.Args()[1:], nil
 }
 
-type TomlLoader struct {}
-
-func (t *TomlLoader) fullyLoad(defaultTemplate *gobuildInfo) (*gobuildInfo, error) {
-	// Merge toml files recursively in parent directories, ending with the defaulte template
-	dir, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	return t.loadInDir(defaultTemplate, filepath.Clean(dir))
-}
-
 type templateFinder struct {
 	templatesForDirectories map[string]*gobuildInfo
 	defaultTemplate *gobuildInfo
 }
 
-func (t *templateFinder) getTemplate(dirname string) (*gobuildInfo, error) {
-	template, err := t.loadInDir(dirname)
-	if err != nil {
-		return nil, err
-	}
-	template, exists := t.templatesForDirectories[dirname]
-	if exists {
-		return template, nil
-	}
-
-}
-
 func (t *templateFinder) loadInDir(dirname string) (*gobuildInfo, error) {
-	template, exists := t.templatesForDirectories[dirname]
-	if exists {
+	if template, exists := t.templatesForDirectories[dirname]; exists {
 		return template, nil
 	}
 	if terminatingDirectoryName(dirname) {
@@ -191,49 +366,48 @@ func (t *templateFinder) loadInDir(dirname string) (*gobuildInfo, error) {
 		return t.loadInDir(parent)
 	}
 
+	// At this point, we know dirname is a directory
+
 	buildFileName := filepath.Join(dirname, t.defaultTemplate.buildfileName())
 	l, err = os.Stat(buildFileName)
-	if err == nil && !l.IsDir() {
-		g := gobuildInfo{}
-		toml.DecodeFile()
+	thisDirectoryBuildInfo, stopCheck, err := func() (*gobuildInfo, filenameMatcher, error) {
+		if err == nil && !l.IsDir() {
+			retInfo := &gobuildInfo{}
+			if _, err := toml.DecodeFile(buildFileName, retInfo); err != nil {
+				return nil, nil, err
+			}
+			stopCheck, err := retInfo.StopCheck()
+			return retInfo, stopCheck, err
+		} else {
+			sc, err := t.defaultTemplate.StopCheck()
+			return nil, sc, err
+		}
+	}()
+	if err != nil {
+		return nil, err
+	}
+
+	parentInfo, err := func() (*gobuildInfo, error) {
+		if stopCheck.Matches(dirname) {
+			return t.defaultTemplate, nil
+		} else {
+			return t.loadInDir(parent)
+		}
+	}()
+	if err != nil {
+		return nil, err
+	}
+	if thisDirectoryBuildInfo == nil {
 		t.templatesForDirectories[dirname] = parentInfo
-		return parentInfo, nil
+	} else {
+		t.templatesForDirectories[dirname] = (&gobuildInfo{}).overrideFrom(parentInfo).overrideFrom(thisDirectoryBuildInfo)
 	}
-
-
-	stopCheck, err := parentInfo.StopCheck()
-	if err != nil {
-		return nil, err
-	}
-
-	if stopCheck.
-
-	parentInfo, err := t.loadInDir(parent)
-	if err != nil {
-		return nil, err
-	}
-
+	return t.templatesForDirectories[dirname], nil
 }
 
 
 func terminatingDirectoryName(dirname string) bool {
 	return dirname == "" || dirname == "." || dirname == filepath.Separator
-}
-
-// The next directory with a build toml file or empty string
-func (t *TomlLoader) nextBuildFile(dirname string, stopDir filenameMatcher, buildfileName string) string {
-	for !terminatingDirectoryName(dirname) {
-		buildFileName := filepath.Join(dirname, buildfileName)
-		l, err := os.Stat(buildFileName)
-		if err == nil && !l.IsDir() {
-			return buildFileName
-		}
-		if stopDir(dirname) {
-			return ""
-		}
-		dirname = filepath.Dir(dirname)
-	}
-	return ""
 }
 
 func mustTomlDecode(s string, into interface{}) toml.MetaData {
@@ -255,19 +429,43 @@ type filenameMatcher interface {
 	Matches(filename string) bool
 }
 
-func expandPaths(rootTemplate *gobuildInfo, paths []string, ignorePaths filenameMatcher, matchesPaths filenameMatcher) ([]string, error) {
+type endingMatchesRegexMatcher struct {
+	reg *regexp.Regexp
+}
+
+func (e *endingMatchesRegexMatcher) Matches(filename string) bool {
+	return e.reg.MatchString(filepath.Base(filename))
+}
+
+type anyMatches []filenameMatcher
+
+func (a anyMatches) Matches(filename string) bool {
+	for _, m := range a {
+		if m.Matches(filename) {
+			return true
+		}
+	}
+	return false
+}
+
+func expandPaths(templateMap templateFinder, paths []string) ([]string, error) {
+	// ignorePaths filenameMatcher
 	files := make(map[string]struct{}, len(paths))
-	templatesForDirectories := map[string]*gobuildInfo(len(paths) + 2)
-	templatesForDirectories[""] = rootTemplate
-	templatesForDirectories["."] = rootTemplate
 	for _, path := range paths {
 		if strings.HasSuffix(path, "/...") {
-			root := filepath.Dir(path)
-			if err := filepath.Walk(root, func(p string, i os.FileInfo, err error) error {
+			if err := filepath.Walk(filepath.Dir(path), func(p string, i os.FileInfo, err error) error {
 				if err != nil {
 					return err
 				}
 				finalPath := filepath.Clean(p)
+				template, err := templateMap.loadInDir(p)
+				if err != nil {
+					return err
+				}
+				ignorePaths, err := template.ignoredPaths()
+				if err != nil {
+					return err
+				}
 				if ignorePaths.Matches(finalPath) {
 					if i.IsDir() {
 						return filepath.SkipDir
@@ -275,7 +473,7 @@ func expandPaths(rootTemplate *gobuildInfo, paths []string, ignorePaths filename
 					return nil
 				}
 
-				if !i.IsDir() && matchesPaths.Matches(finalPath) {
+				if !i.IsDir() {
 					files[finalPath] = struct{}
 				}
 				return nil
@@ -294,13 +492,11 @@ func expandPaths(rootTemplate *gobuildInfo, paths []string, ignorePaths filename
 	return out, nil
 }
 
-
 // cmdInDir represents a command to run inside a directory
 type cmdInDir struct {
 	cmd string
 	args []string
 	cwd string
-	ifFiles []string
 }
 
 func streamLines(input io.Reader, into chan <- string, wg *sync.WaitGroup) {
@@ -308,6 +504,16 @@ func streamLines(input io.Reader, into chan <- string, wg *sync.WaitGroup) {
 	r := bufio.NewScanner(input)
 	for r.Scan() {
 		into <- r.Text()
+	}
+}
+
+func streamInto(from <- chan string, into io.Writer, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for l := range from {
+		if l != "" {
+			io.WriteString(into, l)
+			io.WriteString(into, "\n")
+		}
 	}
 }
 
