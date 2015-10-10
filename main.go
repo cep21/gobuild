@@ -1,29 +1,31 @@
 package main
 
 import (
-	"github.com/BurntSushi/toml"
-	"fmt"
-	"os"
-	"os/exec"
 	"bufio"
+	"flag"
+	"fmt"
+	"github.com/BurntSushi/toml"
 	"golang.org/x/net/context"
 	"io"
+	"io/ioutil"
+	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
-	"strings"
-	"path/filepath"
-	"sort"
-	"flag"
-	"regexp"
 )
 
 type macro struct {
-	Cmd *string `toml:"cmd"`
-	Args []string `toml:"args"`
-	Goget *string `toml:"goget"`
-	CrossDirectory *bool `toml:"cross-directory"`
-	IfFiles []string `toml:"if-files"`
-	AppendFiles bool `toml:"append-files"`
+	Cmd            *string  `toml:"cmd"`
+	Args           []string `toml:"args"`
+	Goget          *string  `toml:"goget"`
+	CrossDirectory *bool    `toml:"cross-directory"`
+	IfFiles        []string `toml:"if-files"`
+	AppendFiles    bool     `toml:"append-files"`
 }
 
 func (m *macro) ifFilesMatcher() (filenameMatcher, error) {
@@ -48,7 +50,7 @@ func (m *macro) mergeFrom(from macro) {
 	if from.Args != nil {
 		m.Args = from.Args
 	}
-	if from.Goget != nil{
+	if from.Goget != nil {
 		m.Goget = from.Goget
 	}
 	if from.CrossDirectory != nil {
@@ -60,12 +62,12 @@ func (m *macro) mergeFrom(from macro) {
 }
 
 type command struct {
-	Macros []string `toml:"macros"`
+	Macros  []string `toml:"macros"`
 	RunNext []string `toml:"run-next"`
 }
 
 func (g *gobuildInfo) StopCheck() (filenameMatcher, error) {
-	return &directoryContainsMatcher{g.Vars["stop_loading_parent"].([]string)}, nil
+	return &directoryContainsMatcher{arrIntToarrStr(g.Vars["stop_loading_parent"].([]interface{}))}, nil
 }
 
 type directoryContainsMatcher struct {
@@ -83,13 +85,32 @@ func (d *directoryContainsMatcher) Matches(filename string) bool {
 }
 
 type gobuildInfo struct {
-	Macros map[string]macro `toml:"macro"`
-	Vars map[string]interface{} `toml:"vars"`
-	Commands map[string]command `toml:"cmd"`
+	Macros   map[string]macro       `toml:"macro"`
+	Vars     map[string]interface{} `toml:"vars"`
+	Commands map[string]command     `toml:"cmd"`
 }
 
 func (g *gobuildInfo) buildfileName() string {
 	return g.Vars["buildfileName"].(string)
+}
+
+func (g *gobuildInfo) parrallelBuildCount() int64 {
+	return g.Vars["parallelBuildCount"].(int64)
+}
+
+func (g *gobuildInfo) varAsString(name string) (string, bool) {
+	v, exists := g.Vars[name]
+	if !exists {
+		return "", false
+	}
+	switch v.(type) {
+	case int:
+	case int64:
+		return fmt.Sprintf("%d", v), true
+	case float64:
+		return fmt.Sprintf("%f", v), true
+	}
+	return fmt.Sprintf("%s", v), true
 }
 
 func (g *gobuildInfo) command(name string) (command, bool) {
@@ -97,8 +118,16 @@ func (g *gobuildInfo) command(name string) (command, bool) {
 	return c, exists
 }
 
+func arrIntToarrStr(ints []interface{}) []string {
+	r := make([]string, 0, len(ints))
+	for _, i := range ints {
+		r = append(r, i.(string))
+	}
+	return r
+}
+
 func (g *gobuildInfo) ignoredPaths() (filenameMatcher, error) {
-	ignoreVars := g.Vars["ignoreDirs"].([]string)
+	ignoreVars := arrIntToarrStr(g.Vars["ignoreDirs"].([]interface{}))
 	ret := make([]filenameMatcher, 0, len(ignoreVars))
 	for _, dir := range ignoreVars {
 		reg, err := regexp.Compile(dir)
@@ -106,7 +135,7 @@ func (g *gobuildInfo) ignoredPaths() (filenameMatcher, error) {
 			return nil, err
 		}
 		ret = append(ret, &endingMatchesRegexMatcher{
-			reg:reg,
+			reg: reg,
 		})
 	}
 	return anyMatches(ret), nil
@@ -114,7 +143,7 @@ func (g *gobuildInfo) ignoredPaths() (filenameMatcher, error) {
 
 // mergeFrom will merge into this build info data from another build info.  from will overwrite any
 // information already in g, so it is the more important version
-func (g *gobuildInfo) overrideFrom(from gobuildInfo) *gobuildInfo{
+func (g *gobuildInfo) overrideFrom(from gobuildInfo) *gobuildInfo {
 	// merge vars
 	for k, v := range from.Vars {
 		g.Vars[k] = v
@@ -132,37 +161,57 @@ func (g *gobuildInfo) overrideFrom(from gobuildInfo) *gobuildInfo{
 }
 
 func main() {
+	m := Gobuild{
+		templateMap: templateFinder{
+			templatesForDirectories: make(map[string]*gobuildInfo),
+			defaultTemplate:         &defaultDecodedTemplate,
+		},
+		log: log.New(ioutil.Discard, "", 0),
+	}
+	if err := m.main(); err != nil {
+		panic(err)
+	}
 }
 
-type Gobuild struct{
+type Gobuild struct {
 	templateMap templateFinder
+	log         *log.Logger
 }
 
 type GroupToRun struct {
-	cwd string
+	cwd   string
 	files []string
-	tmpl *gobuildInfo
+	tmpl  *gobuildInfo
 }
 
 func (g *Gobuild) main() error {
 	f := flagParser{
 		flags: flag.NewFlagSet("flag_parser", flag.ExitOnError),
 	}
-	cmdToRun, paths, err := f.Parse(os.Args)
+	cmdToRun, paths, err := f.Parse(g.log, os.Args)
 	if err != nil {
 		return nil
 	}
+	g.log.Printf("Command:-%s- Paths: -%s-\n", cmdToRun, paths)
 
-	filesToCheck, err := expandPaths(g.templateMap, paths)
+	filesToCheck, err := expandPaths(g.log, g.templateMap, paths)
 	if err != nil {
 		return err
 	}
 
+	g.log.Printf("Checking files %s\n", strings.Join(filesToCheck, ","))
+
 	// Group every file by directory
 	groupsToRun, err := groupFiles(filesToCheck, g.templateMap)
+	if err != nil {
+		return err
+	}
+
+	g.log.Printf("Groups to run %#v\n", groupsToRun)
 
 	// Make sure the command to run is defined for every file you want to check.
 	if err := commandExistsForPaths(cmdToRun, groupsToRun, g.templateMap); err != nil {
+		log.Printf("Command %s not defined\n", cmdToRun)
 		return err
 	}
 
@@ -171,7 +220,11 @@ func (g *Gobuild) main() error {
 		return err
 	}
 
+	g.log.Printf("installs %+v\n", installs)
+
 	installs = condenseInstallCommands(installs)
+
+	g.log.Printf("installs %+v\n", installs)
 
 	ctx := context.Background()
 
@@ -182,19 +235,72 @@ func (g *Gobuild) main() error {
 		}
 	}
 
-	execCmd, err := getExecCommands(cmdToRun, groupsToRun)
+	execCmd, err := getExecCommands(g.log, cmdToRun, groupsToRun)
 	if err != nil {
 		return err
 	}
 
-	for pi, phase := range execCmd {
-		fmt.Printf("Phase %d\n", pi)
-		for _, cmd := range phase {
-			fmt.Printf("%s\n", cmd)
-		}
+	g.log.Printf("execCmd %+v\n", execCmd)
+
+	primaryTemplate, err := g.templateMap.loadInDir(".")
+	if err != nil {
+		return err
 	}
 
+	output := make(chan *errorResult)
+	outputWaiting := sync.WaitGroup{}
+	outputWaiting.Add(1)
+	go drainOutputPipeline(output, &outputWaiting)
+	for pi, phase := range execCmd {
+		g.log.Printf("Phase %d\n", pi)
+		executionPipeline := make(chan *cmdToProcess, 1024)
+		wg := sync.WaitGroup{}
+		numberOfBuilds := primaryTemplate.parrallelBuildCount()
+		wg.Add(int(numberOfBuilds))
+		g.log.Printf("Running %d builds\n", numberOfBuilds)
+		for i := int64(0); i < numberOfBuilds; i++ {
+			go drainExecutionPipeline(ctx, g.log, executionPipeline, output, &wg)
+		}
+		for _, cmd := range phase {
+			executionPipeline <- cmd
+		}
+		close(executionPipeline)
+		wg.Wait()
+	}
+
+	close(output)
+	outputWaiting.Wait()
 	return nil
+}
+
+func drainOutputPipeline(outputs <-chan *errorResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for p := range outputs {
+		fmt.Println(p.String())
+	}
+}
+
+func drainExecutionPipeline(ctx context.Context, log *log.Logger, ch <-chan *cmdToProcess, out chan<- *errorResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for p := range ch {
+		log.Printf("Running %s", p.cmd)
+		procRunning := sync.WaitGroup{}
+		log.Printf("I would run %v %s\n", p, p.cmd)
+		stdoutStream := make(chan string, 1024)
+		stderrStream := make(chan string, 1024)
+		procRunning.Add(2)
+		go processInputStream(stdoutStream, out, p.stdoutProcessor, &procRunning)
+		go processInputStream(stderrStream, out, p.stderrProcessor, &procRunning)
+		if e := p.cmd.exec(ctx, stdoutStream, stderrStream); e != nil {
+			if ep := p.execCodeProcessor.OnExit(e); ep != nil {
+				out <- ep
+			}
+		}
+		close(stdoutStream)
+		close(stderrStream)
+		procRunning.Wait()
+		log.Printf("Done Running %s", p.cmd)
+	}
 }
 
 func condenseInstallCommands(installs []*installCommand) []*installCommand {
@@ -219,7 +325,7 @@ func condenseInstallCommands(installs []*installCommand) []*installCommand {
 type installCommand struct {
 	checkExists string
 	installArgs []string
-	goGetPath string
+	goGetPath   string
 }
 
 func (i *installCommand) shouldInstall() bool {
@@ -229,9 +335,9 @@ func (i *installCommand) shouldInstall() bool {
 
 func (i *installCommand) install(ctx context.Context) error {
 	cmd := cmdInDir{
-		cmd: i.installArgs[0],
+		cmd:  i.installArgs[0],
 		args: i.installArgs[1:],
-		cwd: "",
+		cwd:  "",
 	}
 	stderr := make(chan string)
 	stdout := make(chan string)
@@ -254,10 +360,12 @@ func installsForTemplate(arg string, t *gobuildInfo) (map[string]*installCommand
 	}
 	for _, macroName := range cmd.Macros {
 		m := t.Macros[macroName]
-		installMap[*m.Cmd] = &installCommand{
-			checkExists: *m.Cmd,
-			installArgs: []string{"go", "get", "-u", *m.Goget},
-			goGetPath: *m.Goget,
+		if m.Goget != nil {
+			installMap[*m.Cmd] = &installCommand{
+				checkExists: *m.Cmd,
+				installArgs: []string{"go", "get", "-u", *m.Goget},
+				goGetPath:   *m.Goget,
+			}
 		}
 	}
 	for _, n := range cmd.RunNext {
@@ -272,9 +380,98 @@ func installsForTemplate(arg string, t *gobuildInfo) (map[string]*installCommand
 	return installMap, nil
 }
 
-func getExecCommands(cmd string, groupsToRun []*GroupToRun) ([][]*cmdInDir, error) {
-	thisPhase := make([]*cmdInDir, 0, len(groupsToRun))
-	phases := [][]*cmdInDir{thisPhase}
+func replaceArgs(args []string, g *gobuildInfo) []string {
+	ret := make([]string, 0, len(args))
+	for _, r := range args {
+		varName := varNameForString(r)
+		if varName == "" {
+			ret = append(ret, r)
+		}
+		if varVal, exists := g.varAsString(varName); exists {
+			ret = append(ret, varVal)
+		}
+	}
+	return ret
+}
+
+func varNameForString(s string) string {
+	if len(s) <= 2 {
+		return ""
+	}
+	if s[0] == '{' && s[len(s)-1] == '}' {
+		return s[1 : len(s)-1]
+	}
+	return ""
+}
+
+type outputProcessor interface {
+	ParseError(line string) *errorResult
+}
+
+type echoOutputProcessor struct {
+	checkName string
+}
+
+func (e echoOutputProcessor) ParseError(line string) *errorResult {
+	if line == "" {
+		return nil
+	}
+	return &errorResult{
+		path:    "hi",
+		message: line + "(" + e.checkName + ")",
+	}
+}
+
+type exitProcessor interface {
+	OnExit(err error) *errorResult
+}
+
+type ignoreExitCode struct{}
+
+func (e ignoreExitCode) OnExit(err error) *errorResult {
+	return nil
+}
+
+func processInputStream(ch <-chan string, out chan<- *errorResult, p outputProcessor, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for s := range ch {
+		if e := p.ParseError(s); e != nil {
+			out <- e
+		}
+	}
+}
+
+type errorResult struct {
+	path     string
+	line     int
+	col      int
+	severity severity
+	message  string
+}
+
+type severity int
+
+const (
+	Warning severity = iota
+)
+
+func (s severity) String() string {
+	return "warning"
+}
+
+func (e *errorResult) String() string {
+	return fmt.Sprintf("%s:%d:%d:%s:%s", e.path, e.line, e.col, e.severity.String(), e.message)
+}
+
+type cmdToProcess struct {
+	cmd               *cmdInDir
+	stdoutProcessor   outputProcessor
+	stderrProcessor   outputProcessor
+	execCodeProcessor exitProcessor
+}
+
+func getExecCommands(log *log.Logger, cmd string, groupsToRun []*GroupToRun) ([][]*cmdToProcess, error) {
+	phases := [][]*cmdToProcess{make([]*cmdToProcess, 0, len(groupsToRun))}
 	for _, g := range groupsToRun {
 		cmdToRun, exists := g.tmpl.command(cmd)
 		if !exists {
@@ -282,6 +479,7 @@ func getExecCommands(cmd string, groupsToRun []*GroupToRun) ([][]*cmdInDir, erro
 		}
 		for _, m := range cmdToRun.Macros {
 			macro := g.tmpl.Macros[m]
+			log.Printf("Looking at macro %+v", macro)
 			ifFilesMatcher, err := macro.ifFilesMatcher()
 			if err != nil {
 				return nil, err
@@ -293,27 +491,37 @@ func getExecCommands(cmd string, groupsToRun []*GroupToRun) ([][]*cmdInDir, erro
 				}
 			}
 			if len(matchedFiles) == 0 {
+				log.Printf("No matched files")
 				continue
 			}
 			cmd := cmdInDir{
-				cmd: *macro.Cmd,
-				args: append([]string{}, macro.Args...),
-				cwd: g.cwd,
+				cmd:  *macro.Cmd,
+				args: replaceArgs(macro.Args, g.tmpl),
+				cwd:  g.cwd,
 			}
 			if macro.AppendFiles {
 				cmd.args = append(cmd.args, matchedFiles...)
 			}
-			thisPhase = append(thisPhase, &cmd)
+			phases[0] = append(phases[0], &cmdToProcess{
+				cmd: &cmd,
+				stdoutProcessor: echoOutputProcessor{
+					checkName: m,
+				},
+				stderrProcessor: echoOutputProcessor{
+					checkName: m,
+				},
+				execCodeProcessor: ignoreExitCode{},
+			})
 		}
 		for _, runNext := range cmdToRun.RunNext {
-			nextPhase, err := getExecCommands(runNext, []*GroupToRun{g})
+			nextPhase, err := getExecCommands(log, runNext, []*GroupToRun{g})
 			if err != nil {
 				return nil, err
 			}
 			for i, phase := range nextPhase {
 				phaseIndex := i + 1
 				if len(phases) == phaseIndex {
-					phases = append(phases, []*cmdInDir{})
+					phases = append(phases, []*cmdToProcess{})
 				}
 				phases[phaseIndex] = append(phases[phaseIndex], phase...)
 			}
@@ -354,9 +562,9 @@ func groupFiles(paths []string, templateMap templateFinder) ([]*GroupToRun, erro
 			return nil, err
 		}
 		ret[dir] = &GroupToRun{
-			cwd: dir,
+			cwd:   dir,
 			files: []string{p},
-			tmpl: t,
+			tmpl:  t,
 		}
 	}
 	r := make([]*GroupToRun, 0, len(ret))
@@ -366,7 +574,7 @@ func groupFiles(paths []string, templateMap templateFinder) ([]*GroupToRun, erro
 	return r, nil
 }
 
-func commandExistsForPaths(cmd string, paths[]*GroupToRun, templateMap templateFinder) error {
+func commandExistsForPaths(cmd string, paths []*GroupToRun, templateMap templateFinder) error {
 	for _, p := range paths {
 		t, err := templateMap.loadInDir(p.cwd)
 		if err != nil {
@@ -397,19 +605,23 @@ type flagParser struct {
 
 var defaultPaths = []string{"./..."}
 
-func (f *flagParser) Parse(args []string) (string, []string, error){
+func (f *flagParser) Parse(log *log.Logger, args []string) (string, []string, error) {
+	log.Printf("Parsing %s\n", strings.Join(args, " "))
 	if err := f.flags.Parse(args); err != nil {
 		return "", nil, err
 	}
-	if f.flags.NArg() == 0 {
+	if f.flags.NArg() <= 1 {
 		return "", defaultPaths, nil
 	}
-	return f.flags.Args()[0], f.flags.Args()[1:], nil
+	if f.flags.NArg() == 2 {
+		return f.flags.Args()[1], defaultPaths, nil
+	}
+	return f.flags.Args()[1], f.flags.Args()[2:], nil
 }
 
 type templateFinder struct {
 	templatesForDirectories map[string]*gobuildInfo
-	defaultTemplate *gobuildInfo
+	defaultTemplate         *gobuildInfo
 }
 
 func (t *templateFinder) loadInDir(dirname string) (*gobuildInfo, error) {
@@ -517,12 +729,14 @@ func (a anyMatches) Matches(filename string) bool {
 	return false
 }
 
-func expandPaths(templateMap templateFinder, paths []string) ([]string, error) {
+func expandPaths(log *log.Logger, templateMap templateFinder, paths []string) ([]string, error) {
 	// ignorePaths filenameMatcher
 	files := make(map[string]struct{}, len(paths))
 	for _, path := range paths {
 		if strings.HasSuffix(path, "/...") {
+			log.Printf("At %s\n", path)
 			if err := filepath.Walk(filepath.Dir(path), func(p string, i os.FileInfo, err error) error {
+				log.Printf("At %s\n", p)
 				if err != nil {
 					return err
 				}
@@ -535,6 +749,7 @@ func expandPaths(templateMap templateFinder, paths []string) ([]string, error) {
 				if err != nil {
 					return err
 				}
+				log.Printf("Checking if %s matches", p)
 				if ignorePaths.Matches(finalPath) {
 					if i.IsDir() {
 						return filepath.SkipDir
@@ -542,6 +757,7 @@ func expandPaths(templateMap templateFinder, paths []string) ([]string, error) {
 					return nil
 				}
 
+				log.Printf("%s does match", p)
 				if !i.IsDir() {
 					files[finalPath] = struct{}{}
 				}
@@ -563,16 +779,16 @@ func expandPaths(templateMap templateFinder, paths []string) ([]string, error) {
 
 // cmdInDir represents a command to run inside a directory
 type cmdInDir struct {
-	cmd string
+	cmd  string
 	args []string
-	cwd string
+	cwd  string
 }
 
 func (c *cmdInDir) String() string {
 	return fmt.Sprintf("CWD=%s %s %s", c.cwd, c.cmd, strings.Join(c.args, " "))
 }
 
-func streamLines(input io.Reader, into chan <- string, wg *sync.WaitGroup) {
+func streamLines(input io.Reader, into chan<- string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	r := bufio.NewScanner(input)
 	for r.Scan() {
@@ -580,7 +796,7 @@ func streamLines(input io.Reader, into chan <- string, wg *sync.WaitGroup) {
 	}
 }
 
-func streamInto(from <- chan string, into io.Writer, wg *sync.WaitGroup) {
+func streamInto(from <-chan string, into io.Writer, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for l := range from {
 		if l != "" {
@@ -592,7 +808,7 @@ func streamInto(from <- chan string, into io.Writer, wg *sync.WaitGroup) {
 
 // Execute the command streaming lines of stdin and stdout.  Blocks until exec() is finished or the
 // given context closes.  If the context closes early, it will try to kill the spawned connection.
-func (c *cmdInDir) exec(ctx context.Context, stdoutStream chan <- string, stderrStream chan <- string) error {
+func (c *cmdInDir) exec(ctx context.Context, stdoutStream chan<- string, stderrStream chan<- string) error {
 	r := exec.Command(c.cmd, c.args...)
 	r.Dir = c.cwd
 	stdout, err := r.StdoutPipe()
@@ -619,17 +835,16 @@ func (c *cmdInDir) exec(ctx context.Context, stdoutStream chan <- string, stderr
 		defer close(doneWaiting)
 		wg.Wait()
 		if err := r.Wait(); err != nil {
-			fmt.Printf("Got error: %s\n", err.Error())
 			av.Store(err)
 			return
 		}
 	}()
 	select {
-	case <- ctx.Done():
+	case <-ctx.Done():
 		r.Process.Kill()
-		<- doneWaiting
+		<-doneWaiting
 		return ctx.Err()
-	case <- doneWaiting:
+	case <-doneWaiting:
 		if err := av.Load(); err != nil {
 			return err.(error)
 		}

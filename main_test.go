@@ -1,13 +1,13 @@
 package main
 
 import (
-	"testing"
 	"bytes"
 	"github.com/BurntSushi/toml"
 	. "github.com/smartystreets/goconvey/convey"
 	"golang.org/x/net/context"
-	"time"
 	"os/exec"
+	"testing"
+	"time"
 )
 
 func TestLoadMacro(t *testing.T) {
@@ -25,9 +25,9 @@ func TestLoadMacro(t *testing.T) {
 func TestExecMultiLine(t *testing.T) {
 	Convey("When executing something on multiple lines", t, func(c2 C) {
 		c := cmdInDir{
-			cmd: "echo",
+			cmd:  "echo",
 			args: []string{"hello\nworld"},
-			cwd: ".",
+			cwd:  ".",
 		}
 		ctx := context.Background()
 		stdoutStream := make(chan string)
@@ -37,9 +37,9 @@ func TestExecMultiLine(t *testing.T) {
 			close(execDone)
 		}()
 		Convey("Should be able to stream from stdout", func() {
-			So(<- stdoutStream, ShouldEqual, "hello")
-			So(<- stdoutStream, ShouldEqual, "world")
-			<- execDone
+			So(<-stdoutStream, ShouldEqual, "hello")
+			So(<-stdoutStream, ShouldEqual, "world")
+			<-execDone
 		})
 	})
 }
@@ -47,9 +47,9 @@ func TestExecMultiLine(t *testing.T) {
 func TestExecNormal(t *testing.T) {
 	Convey("When executing something", t, func(c2 C) {
 		c := cmdInDir{
-			cmd: "echo",
+			cmd:  "echo",
 			args: []string{"hello", "world"},
-			cwd: ".",
+			cwd:  ".",
 		}
 		ctx := context.Background()
 		stdoutStream := make(chan string)
@@ -59,9 +59,9 @@ func TestExecNormal(t *testing.T) {
 			close(execDone)
 		}()
 		Convey("Should be able to stream from stdout", func() {
-			line := <- stdoutStream
+			line := <-stdoutStream
 			So(line, ShouldEqual, "hello world")
-			<- execDone
+			<-execDone
 		})
 	})
 }
@@ -82,11 +82,11 @@ func TestExecInvalid(t *testing.T) {
 func TestExecTimeout(t *testing.T) {
 	Convey("When executing something that times out", t, func(c2 C) {
 		c := cmdInDir{
-			cmd: "sleep",
+			cmd:  "sleep",
 			args: []string{"200"},
-			cwd: ".",
+			cwd:  ".",
 		}
-		ctx, _ := context.WithTimeout(context.Background(), time.Millisecond * 10)
+		ctx, _ := context.WithTimeout(context.Background(), time.Millisecond*10)
 		Convey("We should read the timeout", func() {
 			So(c.exec(ctx, nil, nil), ShouldEqual, ctx.Err())
 		})
