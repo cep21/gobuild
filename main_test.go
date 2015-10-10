@@ -5,6 +5,8 @@ import (
 	"github.com/BurntSushi/toml"
 	. "github.com/smartystreets/goconvey/convey"
 	"golang.org/x/net/context"
+	"io/ioutil"
+	"log"
 	"os/exec"
 	"testing"
 	"time"
@@ -33,7 +35,8 @@ func TestExecMultiLine(t *testing.T) {
 		stdoutStream := make(chan string)
 		execDone := make(chan struct{})
 		go func() {
-			c2.So(c.exec(ctx, stdoutStream, nil), ShouldBeNil)
+			l := log.New(ioutil.Discard, "", 0)
+			c2.So(c.exec(ctx, l, stdoutStream, nil), ShouldBeNil)
 			close(execDone)
 		}()
 		Convey("Should be able to stream from stdout", func() {
@@ -55,7 +58,8 @@ func TestExecNormal(t *testing.T) {
 		stdoutStream := make(chan string)
 		execDone := make(chan struct{})
 		go func() {
-			c2.So(c.exec(ctx, stdoutStream, nil), ShouldBeNil)
+			l := log.New(ioutil.Discard, "", 0)
+			c2.So(c.exec(ctx, l, stdoutStream, nil), ShouldBeNil)
 			close(execDone)
 		}()
 		Convey("Should be able to stream from stdout", func() {
@@ -74,7 +78,8 @@ func TestExecInvalid(t *testing.T) {
 		}
 		ctx := context.Background()
 		Convey("We should read an error", func() {
-			So(c.exec(ctx, nil, nil).(*exec.Error).Err, ShouldEqual, exec.ErrNotFound)
+			l := log.New(ioutil.Discard, "", 0)
+			So(c.exec(ctx, l, nil, nil).(*exec.Error).Err, ShouldEqual, exec.ErrNotFound)
 		})
 	})
 }
@@ -88,7 +93,8 @@ func TestExecTimeout(t *testing.T) {
 		}
 		ctx, _ := context.WithTimeout(context.Background(), time.Millisecond*10)
 		Convey("We should read the timeout", func() {
-			So(c.exec(ctx, nil, nil), ShouldEqual, ctx.Err())
+			l := log.New(ioutil.Discard, "", 0)
+			So(c.exec(ctx, l, nil, nil), ShouldEqual, ctx.Err())
 		})
 	})
 }

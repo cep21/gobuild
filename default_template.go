@@ -49,7 +49,7 @@ var defaultTemplate = `
 [macro.errcheck]
   cmd="errcheck"
   goget="github.com/kisielk/errcheck"
-  args=[]
+  args=["-abspath", "-abspath"]
   if-files=[".*\\.go"]
   append-files=true
 
