@@ -2,14 +2,15 @@ package main
 
 import (
 	"bytes"
-	"github.com/BurntSushi/toml"
-	. "github.com/smartystreets/goconvey/convey"
-	"golang.org/x/net/context"
 	"io/ioutil"
 	"log"
 	"os/exec"
 	"testing"
 	"time"
+
+	"github.com/BurntSushi/toml"
+	. "github.com/smartystreets/goconvey/convey"
+	"golang.org/x/net/context"
 )
 
 func TestLoadMacro(t *testing.T) {

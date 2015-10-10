@@ -2,13 +2,13 @@ package main
 
 var defaultTemplate = `
 [cmd.check]
-  macros = ["varcheck","ineffassign","golint","errcheck","dupl","structcheck","aligncheck","vet","vetshadow","gocyclo","deadcode", "gofmt"]
+  macros = ["varcheck","ineffassign","golint","errcheck","dupl","structcheck","aligncheck","vet","vetshadow","gocyclo","deadcode", "goimports", "gofmt"]
 
 [cmd.test]
   macros = ["test"]
 
 [cmd.fix]
-  macros = ["gofmt-fix"]
+  macros = ["gofmt-fix", "goimports-fix"]
   run-next = ["check"]
 
 [vars]
@@ -115,5 +115,12 @@ var defaultTemplate = `
   cmd="gofmt"
   args=["-s", "-w"]
   if-files=[".*\\.go"]
+  append-files=true
+
+[macro.goimports-fix]
+  cmd="goimports"
+  args=["-w"]
+  if-files=[".*\\.go"]
+  goget="golang.org/x/tools/cmd/goimports"
   append-files=true
 `

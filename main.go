@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"github.com/BurntSushi/toml"
-	"golang.org/x/net/context"
 	"io"
 	"io/ioutil"
 	"log"
@@ -17,6 +15,9 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/BurntSushi/toml"
+	"golang.org/x/net/context"
 )
 
 type macro struct {
