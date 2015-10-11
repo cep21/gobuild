@@ -26,24 +26,23 @@ func TestLoadMacro(t *testing.T) {
 }
 
 func TestExecMultiLine(t *testing.T) {
-	Convey("When executing something on multiple lines", t, func(c2 C) {
+	Convey("When executing something on multiple lines", t, func() {
 		c := cmdInDir{
 			cmd:  "echo",
 			args: []string{"hello\nworld"},
 			cwd:  ".",
 		}
 		ctx := context.Background()
-		stdoutStream := make(chan string)
-		execDone := make(chan struct{})
-		go func() {
-			l := log.New(ioutil.Discard, "", 0)
-			c2.So(c.exec(ctx, l, stdoutStream, nil), ShouldBeNil)
-			close(execDone)
-		}()
-		Convey("Should be able to stream from stdout", func() {
+		stdoutStream := make(chan string, 2)
+		l := log.New(ioutil.Discard, "", 0)
+		Convey("Should be able to stream from stdout", func(c2 C) {
+			execWait := make(chan error)
+			go func() {
+				execWait <- c.exec(ctx, l, stdoutStream, nil)
+			}()
 			So(<-stdoutStream, ShouldEqual, "hello")
 			So(<-stdoutStream, ShouldEqual, "world")
-			<-execDone
+			So(<-execWait, ShouldBeNil)
 		})
 	})
 }
@@ -57,22 +56,21 @@ func TestExecNormal(t *testing.T) {
 		}
 		ctx := context.Background()
 		stdoutStream := make(chan string)
-		execDone := make(chan struct{})
+		execDone := make(chan error)
 		go func() {
 			l := log.New(ioutil.Discard, "", 0)
-			c2.So(c.exec(ctx, l, stdoutStream, nil), ShouldBeNil)
-			close(execDone)
+			execDone <- c.exec(ctx, l, stdoutStream, nil)
 		}()
 		Convey("Should be able to stream from stdout", func() {
 			line := <-stdoutStream
 			So(line, ShouldEqual, "hello world")
-			<-execDone
+			So(<-execDone, ShouldBeNil)
 		})
 	})
 }
 
 func TestExecInvalid(t *testing.T) {
-	Convey("When executing something that is invalid", t, func(c2 C) {
+	Convey("When executing something that is invalid", t, func() {
 		c := cmdInDir{
 			cmd: "asdfdsafasd",
 			cwd: ".",

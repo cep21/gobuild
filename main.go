@@ -14,7 +14,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/BurntSushi/toml"
 	"golang.org/x/net/context"
@@ -253,7 +252,7 @@ func (g *gobuild) main() error {
 }
 
 func runPhases(ctx context.Context, log *log.Logger, primaryTemplate *gobuildInfo, execCmd [][]*cmdToProcess) {
-	output := make(chan *errorResult)
+	output := make(chan *errorResult, 1024)
 	outputWaiting := sync.WaitGroup{}
 	outputWaiting.Add(1)
 	go drainOutputPipeline(output, &outputWaiting)
@@ -344,8 +343,8 @@ func (i *installCommand) install(log *log.Logger, ctx context.Context) error {
 		args: i.installArgs[1:],
 		cwd:  "",
 	}
-	stderr := make(chan string)
-	stdout := make(chan string)
+	stderr := make(chan string, 1024)
+	stdout := make(chan string, 1024)
 	wg := sync.WaitGroup{}
 	wg.Add(2)
 	defer wg.Wait()
@@ -841,33 +840,28 @@ func logIfError(log *log.Logger, msg string, err error) {
 func (c *cmdInDir) exec(ctx context.Context, log *log.Logger, stdoutStream chan<- string, stderrStream chan<- string) error {
 	r := exec.Command(c.cmd, c.args...)
 	r.Dir = c.cwd
-	stdout, err := r.StdoutPipe()
-
-	if err != nil {
-		return err
-	}
-	stderr, err := r.StderrPipe()
-	if err != nil {
-		return err
-	}
+	stdoutReader, stdoutWriter := io.Pipe()
+	stderrReader, stderrWriter := io.Pipe()
+	r.Stdout = stdoutWriter
+	r.Stderr = stderrWriter
 	wg := sync.WaitGroup{}
 	wg.Add(2)
-	go streamLines(stdout, stdoutStream, &wg)
-	go streamLines(stderr, stderrStream, &wg)
+	go streamLines(stdoutReader, stdoutStream, &wg)
+	go streamLines(stderrReader, stderrStream, &wg)
 
 	if err := r.Start(); err != nil {
 		return err
 	}
 
 	doneWaiting := make(chan struct{})
-	av := atomic.Value{}
+	//	av := atomic.Value{}
+	var waitError error
 	go func() {
 		defer close(doneWaiting)
+		waitError = r.Wait()
+		stdoutWriter.Close()
+		stderrWriter.Close()
 		wg.Wait()
-		if err := r.Wait(); err != nil {
-			av.Store(err)
-			return
-		}
 	}()
 	select {
 	case <-ctx.Done():
@@ -875,9 +869,6 @@ func (c *cmdInDir) exec(ctx context.Context, log *log.Logger, stdoutStream chan<
 		<-doneWaiting
 		return ctx.Err()
 	case <-doneWaiting:
-		if err := av.Load(); err != nil {
-			return err.(error)
-		}
-		return nil
+		return waitError
 	}
 }
