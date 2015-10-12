@@ -594,7 +594,7 @@ func rootPhaseForMacro(log *log.Logger, g *groupToRun, cmdToRun command) ([]*cmd
 	ret := make([]*cmdToProcess, 0, len(cmdToRun.Macros))
 	for _, m := range cmdToRun.Macros {
 		macro := g.tmpl.Macros[m]
-		log.Printf("Looking at macro %+v", macro)
+		log.Printf("Looking at macro %+v %d", macro)
 		ifFilesMatcher, err := macro.ifFilesMatcher()
 		if err != nil {
 			return nil, err
