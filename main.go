@@ -19,6 +19,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"golang.org/x/net/context"
+	"strconv"
 )
 
 type macro struct {
@@ -44,7 +45,6 @@ func (m *macro) parseArgs() error {
 		}
 	}
 	if m.StderrRegex != "" {
-		fmt.Println("making stderr regex")
 		m.stderrReg, err = regexp.Compile(fmt.Sprintf("(?m:%s)", m.StderrRegex))
 		if err != nil {
 			return err
@@ -65,9 +65,7 @@ func (m *macro) StdoutProcessor() outputProcessor {
 }
 
 func (m *macro) StderrProcessor() outputProcessor {
-	fmt.Printf("Getting stderr processor for %v\n", m.Args)
 	if m.stderrReg == nil {
-		fmt.Println("It is nil")
 		return echoOutputProcessor{
 			checkName: *m.Cmd,
 		}
@@ -509,7 +507,6 @@ type regexOutputProcessor struct {
 }
 
 func (e regexOutputProcessor) ParseError(line string) *errorResult {
-	fmt.Printf("Checking line %s %d\n", line)
 	if line == "" {
 		return nil
 	}
@@ -517,10 +514,30 @@ func (e regexOutputProcessor) ParseError(line string) *errorResult {
 	if matches == nil {
 		return nil
 	}
-	fmt.Printf("**** %s ***\n", strings.Join(matches, ","))
 	ret := &errorResult{}
+	subNames := e.reg.SubexpNames()
 	for i, match := range matches {
-		e.reg.
+		varName := subNames[i]
+		switch varName {
+		case "path":
+			ret.path = match
+		case "line":
+			line, err := strconv.ParseInt(match, 10, 32)
+			if err != nil {
+				// do something?
+				return nil
+			}
+			ret.line = int(line)
+		case "col":
+			col, err := strconv.ParseInt(match, 10, 32)
+			if err != nil {
+				// do something?
+				return nil
+			}
+			ret.col = int(col)
+		case "message":
+			ret.message = match
+		}
 	}
 	return ret
 }
