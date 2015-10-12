@@ -65,6 +65,7 @@ var defaultTemplate = `
   goget="github.com/golang/lint/golint"
   args=["-min_confidence", "{min_confidence}"]
   if-files=[".*\\.go"]
+  stdout-regex = "^(?P<path>[^\\s][^:]+?\\.go):(?P<line>\\d+):(?P<col>\\d+):\\s*(?P<message>.*)$"
   append-files=true
 
 [macro.ineffassign]
@@ -89,12 +90,14 @@ var defaultTemplate = `
 [macro.vet]
   cmd="go"
   args=["tool", "vet"]
+  stderr-regex = "^(?P<path>[^\\s][^:]+?\\.go):(?P<line>\\d+):\\s*(?P<message>.*)$"
   if-files=[".*\\.go"]
   append-files=true
 
 [macro.vetshadow]
   cmd="go"
   args=["tool", "vet", "--shadow"]
+  stdout-regex = "^(?P<path>[^\\s][^:]+?\\.go):(?P<line>\\d+):\\s*(?P<message>.*)$"
   if-files=[".*\\.go"]
   append-files=true
 

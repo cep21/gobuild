@@ -27,7 +27,54 @@ type macro struct {
 	Goget          *string  `toml:"goget"`
 	CrossDirectory *bool    `toml:"cross-directory"`
 	IfFiles        []string `toml:"if-files"`
-	AppendFiles    bool     `toml:"append-files"`
+	AppendFiles    *bool     `toml:"append-files"`
+	StdoutRegex    string   `toml:"stdout-regex"`
+	StderrRegex    string   `toml:"stderr-regex"`
+
+	stdoutReg *regexp.Regexp
+	stderrReg *regexp.Regexp
+}
+
+func (m *macro) parseArgs() error {
+	var err error
+	if m.StdoutRegex != "" {
+		m.stdoutReg, err = regexp.Compile(fmt.Sprintf("(?m:%s)", m.StdoutRegex))
+		if err != nil {
+			return err
+		}
+	}
+	if m.StderrRegex != "" {
+		fmt.Println("making stderr regex")
+		m.stderrReg, err = regexp.Compile(fmt.Sprintf("(?m:%s)", m.StderrRegex))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *macro) StdoutProcessor() outputProcessor {
+	if m.stdoutReg == nil {
+		return echoOutputProcessor{
+			checkName: *m.Cmd,
+		}
+	}
+	return &regexOutputProcessor{
+		reg: m.stdoutReg,
+	}
+}
+
+func (m *macro) StderrProcessor() outputProcessor {
+	fmt.Printf("Getting stderr processor for %v\n", m.Args)
+	if m.stderrReg == nil {
+		fmt.Println("It is nil")
+		return echoOutputProcessor{
+			checkName: *m.Cmd,
+		}
+	}
+	return &regexOutputProcessor{
+		reg: m.stderrReg,
+	}
 }
 
 func (m *macro) ifFilesMatcher() (filenameMatcher, error) {
@@ -45,7 +92,7 @@ func (m *macro) ifFilesMatcher() (filenameMatcher, error) {
 	return anyMatches(r), nil
 }
 
-func (m *macro) mergeFrom(from macro) {
+func (m *macro) mergeFrom(from *macro) {
 	if from.Cmd != nil {
 		m.Cmd = from.Cmd
 	}
@@ -60,6 +107,15 @@ func (m *macro) mergeFrom(from macro) {
 	}
 	if from.IfFiles != nil {
 		m.IfFiles = from.IfFiles
+	}
+	if from.AppendFiles != nil {
+		m.AppendFiles = from.AppendFiles
+	}
+	if from.StdoutRegex != "" {
+		m.StdoutRegex = from.StdoutRegex
+	}
+	if from.StderrRegex != "" {
+		m.StderrRegex = from.StderrRegex
 	}
 }
 
@@ -87,7 +143,7 @@ func (d *directoryContainsMatcher) Matches(filename string) bool {
 }
 
 type gobuildInfo struct {
-	Macros   map[string]macro       `toml:"macro"`
+	Macros   map[string]*macro       `toml:"macro"`
 	Vars     map[string]interface{} `toml:"vars"`
 	Commands map[string]command     `toml:"cmd"`
 }
@@ -448,6 +504,27 @@ func (e echoOutputProcessor) ParseError(line string) *errorResult {
 	}
 }
 
+type regexOutputProcessor struct {
+	reg *regexp.Regexp
+}
+
+func (e regexOutputProcessor) ParseError(line string) *errorResult {
+	fmt.Printf("Checking line %s %d\n", line)
+	if line == "" {
+		return nil
+	}
+	matches := e.reg.FindStringSubmatch(line)
+	if matches == nil {
+		return nil
+	}
+	fmt.Printf("**** %s ***\n", strings.Join(matches, ","))
+	ret := &errorResult{}
+	for i, match := range matches {
+		e.reg.
+	}
+	return ret
+}
+
 type exitProcessor interface {
 	OnExit(err error) *errorResult
 }
@@ -521,17 +598,15 @@ func rootPhaseForMacro(log *log.Logger, g *groupToRun, cmdToRun command) ([]*cmd
 			args: replaceArgs(macro.Args, g.tmpl),
 			cwd:  g.cwd,
 		}
-		if macro.AppendFiles {
+		if macro.AppendFiles != nil && *macro.AppendFiles {
 			cmd.args = append(cmd.args, matchedFiles...)
 		}
+		stdoutProcessor := macro.StdoutProcessor()
+		stderrProcessor := macro.StderrProcessor()
 		ret = append(ret, &cmdToProcess{
 			cmd: &cmd,
-			stdoutProcessor: echoOutputProcessor{
-				checkName: m,
-			},
-			stderrProcessor: echoOutputProcessor{
-				checkName: m,
-			},
+			stdoutProcessor: stdoutProcessor,
+			stderrProcessor: stderrProcessor,
 			execCodeProcessor: ignoreExitCode{},
 		})
 	}
@@ -725,7 +800,13 @@ func (t *templateFinder) loadInDir(dirname string) (*gobuildInfo, error) {
 	if thisDirectoryBuildInfo == nil {
 		t.templatesForDirectories[dirname] = parentInfo
 	} else {
-		t.templatesForDirectories[dirname] = (&gobuildInfo{}).overrideFrom(*parentInfo).overrideFrom(*thisDirectoryBuildInfo)
+		toRet := (&gobuildInfo{}).overrideFrom(*parentInfo).overrideFrom(*thisDirectoryBuildInfo)
+		for _, m := range toRet.Macros {
+			if err := m.parseArgs(); err != nil {
+				return nil, err
+			}
+		}
+		t.templatesForDirectories[dirname] = toRet
 	}
 	return t.templatesForDirectories[dirname], nil
 }
@@ -747,6 +828,15 @@ var defaultDecodedTemplateMeta toml.MetaData
 
 func init() {
 	defaultDecodedTemplateMeta = mustTomlDecode(defaultTemplate, &defaultDecodedTemplate)
+	for _, m := range defaultDecodedTemplate.Macros {
+		mustNotNil(m.parseArgs())
+	}
+}
+
+func mustNotNil(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
 
 type filenameMatcher interface {
