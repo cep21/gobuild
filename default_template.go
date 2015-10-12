@@ -15,7 +15,7 @@ var defaultTemplate = `
   duplthreshold = 75
   min_confidence = 0.8
   ignoreDirs = ["^vendor$", "^Godeps$", "^\\..+$"]
-  default = "fix"
+  default = "check"
   buildfileName = "gobuild.toml"
   parallelBuildCount = 16
   stop_loading_parent = [".git"]
@@ -49,7 +49,7 @@ var defaultTemplate = `
 [macro.errcheck]
   cmd="errcheck"
   goget="github.com/kisielk/errcheck"
-  args=["-abspath", "-abspath"]
+  args=["-abspath"]
   if-files=[".*\\.go"]
   append-files=true
 

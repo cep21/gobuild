@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 
+	"time"
+
 	"github.com/BurntSushi/toml"
 	"golang.org/x/net/context"
 )
@@ -114,6 +116,13 @@ func (g *gobuildInfo) varAsString(name string) (string, bool) {
 }
 
 func (g *gobuildInfo) command(name string) (command, bool) {
+	if name == "" {
+		s, ok := g.varAsString("default")
+		if !ok || s == "" {
+			return command{}, false
+		}
+		return g.command(s)
+	}
 	c, exists := g.Commands[name]
 	return c, exists
 }
@@ -167,6 +176,9 @@ func main() {
 			defaultTemplate:         &defaultDecodedTemplate,
 		},
 		log: log.New(ioutil.Discard, "", 0),
+		flagParser: flagParser{
+			flags: flag.NewFlagSet("flag_parser", flag.ExitOnError),
+		},
 	}
 	if err := m.main(); err != nil {
 		panic(err)
@@ -176,6 +188,7 @@ func main() {
 type gobuild struct {
 	templateMap templateFinder
 	log         *log.Logger
+	flagParser  flagParser
 }
 
 type groupToRun struct {
@@ -184,13 +197,22 @@ type groupToRun struct {
 	tmpl  *gobuildInfo
 }
 
-func (g *gobuild) main() error {
-	f := flagParser{
-		flags: flag.NewFlagSet("flag_parser", flag.ExitOnError),
-	}
-	cmdToRun, paths, err := f.Parse(g.log, os.Args)
+func (g *gobuild) setupFlags() (string, []string, error) {
+	g.flagParser.SetupVars()
+	cmdToRun, paths, err := g.flagParser.Parse(g.log, os.Args)
 	if err != nil {
-		return nil
+		return "", nil, nil
+	}
+	if g.flagParser.debugMode {
+		g.log = log.New(os.Stderr, "gobuild", log.LstdFlags)
+	}
+	return cmdToRun, paths, nil
+}
+
+func (g *gobuild) main() error {
+	cmdToRun, paths, err := g.setupFlags()
+	if err != nil {
+		return err
 	}
 	g.log.Printf("Command:-%s- Paths: -%s-\n", cmdToRun, paths)
 
@@ -485,8 +507,9 @@ func rootPhaseForMacro(log *log.Logger, g *groupToRun, cmdToRun command) ([]*cmd
 		}
 		matchedFiles := make([]string, 0, len(g.files))
 		for _, file := range g.files {
+			filenameBase := filepath.Base(file)
 			if ifFilesMatcher.Matches(file) {
-				matchedFiles = append(matchedFiles, file)
+				matchedFiles = append(matchedFiles, filenameBase)
 			}
 		}
 		if len(matchedFiles) == 0 {
@@ -616,23 +639,33 @@ func (e errUnknownCommand) Error() string {
 }
 
 type flagParser struct {
-	flags *flag.FlagSet
+	flags     *flag.FlagSet
+	debugMode bool
 }
 
 var defaultPaths = []string{"./..."}
 
+func (f *flagParser) SetupVars() {
+	f.flags.BoolVar(&f.debugMode, "verbose", false, "Will enable verbose logging to stderr")
+	f.flags.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage of gobuild\n")
+		f.flags.PrintDefaults()
+	}
+}
+
 func (f *flagParser) Parse(log *log.Logger, args []string) (string, []string, error) {
 	log.Printf("Parsing %s\n", strings.Join(args, " "))
-	if err := f.flags.Parse(args); err != nil {
+	if err := f.flags.Parse(args[1:]); err != nil {
 		return "", nil, err
 	}
-	if f.flags.NArg() <= 1 {
+	log.Printf("Flags of %v", f.flags)
+	if f.flags.NArg() == 0 {
 		return "", defaultPaths, nil
 	}
-	if f.flags.NArg() == 2 {
-		return f.flags.Args()[1], defaultPaths, nil
+	if f.flags.NArg() == 1 {
+		return f.flags.Args()[0], defaultPaths, nil
 	}
-	return f.flags.Args()[1], f.flags.Args()[2:], nil
+	return f.flags.Args()[0], f.flags.Args()[1:], nil
 }
 
 type templateFinder struct {
@@ -838,6 +871,11 @@ func logIfError(log *log.Logger, msg string, err error) {
 // Execute the command streaming lines of stdin and stdout.  Blocks until exec() is finished or the
 // given context closes.  If the context closes early, it will try to kill the spawned connection.
 func (c *cmdInDir) exec(ctx context.Context, log *log.Logger, stdoutStream chan<- string, stderrStream chan<- string) error {
+	startTime := time.Now()
+	defer func() {
+		endTime := time.Now()
+		log.Printf("*** %s =>  %s\n", c.String(), endTime.Sub(startTime).String())
+	}()
 	r := exec.Command(c.cmd, c.args...)
 	r.Dir = c.cwd
 	stdoutReader, stdoutWriter := io.Pipe()
@@ -859,8 +897,8 @@ func (c *cmdInDir) exec(ctx context.Context, log *log.Logger, stdoutStream chan<
 	go func() {
 		defer close(doneWaiting)
 		waitError = r.Wait()
-		stdoutWriter.Close()
-		stderrWriter.Close()
+		logIfError(log, "Unable to close stdout writer", stdoutWriter.Close())
+		logIfError(log, "Unable to close stderr writer", stderrWriter.Close())
 		wg.Wait()
 	}()
 	select {
