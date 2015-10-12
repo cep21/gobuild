@@ -515,6 +515,7 @@ func (e regexOutputProcessor) ParseError(line string) *errorResult {
 	if matches == nil {
 		return nil
 	}
+	fmt.Printf("Checking line **%s^^\n", line)
 	ret := &errorResult{}
 	subNames := e.reg.SubexpNames()
 	for i, match := range matches {

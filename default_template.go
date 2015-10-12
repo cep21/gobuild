@@ -24,17 +24,20 @@ var defaultTemplate = `
 [macro.aligncheck]
   cmd="aligncheck"
   goget="github.com/opennota/check/cmd/aligncheck"
+  stdout-regex="^(?:[^:]+: )?(?P<path>[^:]+):(?P<line>\\d+):(?P<col>\\d+):\\s*(?P<message>.+)$"
   args=["."]
   if-files=[".*\\.go"]
 
 [macro.test]
   cmd="go"
+  stdout-regex="^--- FAIL: .*$\\s+(?P<path>[^:]+):(?P<line>\\d+): (?P<message>.*)$"
   args=["test", "."]
   if-files=[".*\\.go"]
 
 [macro.deadcode]
   cmd="deadcode"
   goget="github.com/remyoudompheng/go-misc/deadcode"
+  stdout-regex = " (?P<path>[^:]+):(?P<line>\\d+):(?P<col>\\d+):\\s*(?P<message>.*)$"
   args=["."]
   if-files=[".*\\.go"]
 
@@ -42,6 +45,7 @@ var defaultTemplate = `
   cmd="dupl"
   goget="github.com/mibk/dupl"
   args=["-plumbing", "-threshold", "{duplthreshold}"]
+  stdout-regex="^(?P<path>[^\\s][^:]+?\\.go):(?P<line>\\d+)-\\d+:\\s*(?P<message>.*)$"
   if-files=[".*\\.go"]
   append-files=true
   cross-directory=true
@@ -50,6 +54,7 @@ var defaultTemplate = `
   cmd="errcheck"
   goget="github.com/kisielk/errcheck"
   args=["-abspath"]
+  stdout-regex="^(?P<path>[^:]+):(?P<line>\\d+):(?P<col>\\d+)\\t(?P<message>.*)$"
   if-files=[".*\\.go"]
   append-files=true
 
