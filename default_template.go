@@ -57,6 +57,7 @@ var defaultTemplate = `
   cmd="gocyclo"
   goget="github.com/alecthomas/gocyclo"
   args=["-over", "{gocyclo_over}"]
+  stdout-regex = "^(?P<cyclo>\\d+)\\s+\\S+\\s(?P<function>\\S+)\\s+(?P<path>[^:]+):(?P<line>\\d+):(\\d+)$"
   append-files=true
   if-files=[".*\\.go"]
 
@@ -73,17 +74,20 @@ var defaultTemplate = `
   goget="github.com/gordonklaus/ineffassign"
   args=["-n", "."]
   if-files=[".*\\.go"]
+  stderr-regex = "^(?P<path>[^\\s][^:]+?\\.go):(?P<line>\\d+):(?P<col>\\d+):\\s*(?P<message>.*)$"
 
 [macro.structcheck]
   cmd="structcheck"
   goget="github.com/opennota/check/cmd/structcheck"
   args=["."]
+  stderr-regex = "^(?:[^:]+: )?(?P<path>[^:]+):(?P<line>\\d+):(?P<col>\\d+):\\s*(?P<message>.+)$"
   if-files=[".*\\.go"]
 
 [macro.varcheck]
   cmd="varcheck"
   goget="github.com/opennota/check/cmd/varcheck"
   args=[]
+  stderr-regex = "^(?:[^:]+: )?(?P<path>[^:]+):(?P<line>\\d+):(?P<col>\\d+):\\s*(?P<message>\\w+)$"
   if-files=[".*\\.go"]
   append-files=true
 

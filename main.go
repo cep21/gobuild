@@ -17,9 +17,10 @@ import (
 
 	"time"
 
+	"strconv"
+
 	"github.com/BurntSushi/toml"
 	"golang.org/x/net/context"
-	"strconv"
 )
 
 type macro struct {
@@ -28,7 +29,7 @@ type macro struct {
 	Goget          *string  `toml:"goget"`
 	CrossDirectory *bool    `toml:"cross-directory"`
 	IfFiles        []string `toml:"if-files"`
-	AppendFiles    *bool     `toml:"append-files"`
+	AppendFiles    *bool    `toml:"append-files"`
 	StdoutRegex    string   `toml:"stdout-regex"`
 	StderrRegex    string   `toml:"stderr-regex"`
 
@@ -141,7 +142,7 @@ func (d *directoryContainsMatcher) Matches(filename string) bool {
 }
 
 type gobuildInfo struct {
-	Macros   map[string]*macro       `toml:"macro"`
+	Macros   map[string]*macro      `toml:"macro"`
 	Vars     map[string]interface{} `toml:"vars"`
 	Commands map[string]command     `toml:"cmd"`
 }
@@ -621,9 +622,9 @@ func rootPhaseForMacro(log *log.Logger, g *groupToRun, cmdToRun command) ([]*cmd
 		stdoutProcessor := macro.StdoutProcessor()
 		stderrProcessor := macro.StderrProcessor()
 		ret = append(ret, &cmdToProcess{
-			cmd: &cmd,
-			stdoutProcessor: stdoutProcessor,
-			stderrProcessor: stderrProcessor,
+			cmd:               &cmd,
+			stdoutProcessor:   stdoutProcessor,
+			stderrProcessor:   stderrProcessor,
 			execCodeProcessor: ignoreExitCode{},
 		})
 	}
