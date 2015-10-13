@@ -21,6 +21,7 @@ import (
 
 	"bytes"
 	"runtime"
+	"runtime/pprof"
 	"text/template"
 
 	"github.com/BurntSushi/toml"
@@ -212,7 +213,7 @@ type directoryContainsMatcher struct {
 func (d *directoryContainsMatcher) Matches(filename string) bool {
 	for _, c := range d.containsCheck {
 		p := filepath.Join(filename, c)
-		if _, err := os.Stat(p); err != nil {
+		if _, err := os.Stat(p); err == nil {
 			return true
 		}
 	}
@@ -377,6 +378,31 @@ func (g *gobuild) main() error {
 	if err != nil {
 		return err
 	}
+	if g.flagParser.pprofFilename != "" {
+		f, err := os.Create(g.flagParser.pprofFilename + ".cpu")
+		if err != nil {
+			return err
+		}
+		defer func() {
+			logIfError(g.log, "Unable to close file", f.Close())
+		}()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			return err
+		}
+		defer pprof.StopCPUProfile()
+
+		defer func() {
+			f, err := os.Create(g.flagParser.pprofFilename + ".heap")
+			if err != nil {
+				g.log.Printf("Uanble to open pprof heap dump file: %s", err.Error())
+				return
+			}
+			logIfError(g.log, "Unable to write heap profile", pprof.WriteHeapProfile(f))
+
+			logIfError(g.log, "Unable to close heap file", f.Close())
+		}()
+	}
+
 	g.log.Printf("Command:-%s- Paths: -%s-\n", cmdToRun, paths)
 
 	filesToCheck, err := expandPaths(g.log, g.templateMap, paths)
@@ -871,12 +897,14 @@ func (e errUnknownCommand) Error() string {
 type flagParser struct {
 	flags     *flag.FlagSet
 	debugMode bool
+	pprofFilename string
 }
 
 var defaultPaths = []string{"./..."}
 
 func (f *flagParser) SetupVars() {
 	f.flags.BoolVar(&f.debugMode, "debug", false, "Will enable debug logging to stderr")
+	f.flags.StringVar(&f.pprofFilename, "pprof", "", "If not nil, will write out pprof profiles")
 	f.flags.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of gobuild\n")
 		f.flags.PrintDefaults()
@@ -934,7 +962,7 @@ func (t *templateFinder) loadInDir(dirname string) (*gobuildInfo, error) {
 	if !l.IsDir() {
 		return t.loadInDir(parent)
 	}
-	if parent == "." {
+	if dirname == "." {
 		parent = ""
 	}
 
@@ -1011,6 +1039,10 @@ func (e *endingMatchesRegexMatcher) Matches(filename string) bool {
 	return e.reg.MatchString(filepath.Base(filename))
 }
 
+func (e *endingMatchesRegexMatcher) String() string {
+	return e.reg.String()
+}
+
 type trueMatcher struct{}
 
 func (t trueMatcher) Matches(filename string) bool {
@@ -1043,7 +1075,7 @@ func walkCallback(log *log.Logger, templateMap templateFinder, files map[string]
 		if err != nil {
 			return err
 		}
-		log.Printf("Checking if %s matches with ignores %+v", p, ignorePaths)
+		log.Printf("Checking if %s matches with ignores %s", p, ignorePaths)
 		if ignorePaths.Matches(finalPath) {
 			if i.IsDir() {
 				return filepath.SkipDir

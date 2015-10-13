@@ -18,7 +18,7 @@ var defaultTemplate = `
   default = "check"
   buildfileName = "gobuild.toml"
   parallelBuildCount = 16
-  stop_loading_parent = [".git"]
+  stop_loading_parent = ["^.git$"]
   gocyclo_over = 10
 
 [macro.aligncheck]
