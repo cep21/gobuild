@@ -5,10 +5,12 @@ machine:
     GOROOT: /usr/local/go
 
 dependencies:
-  pre:
+  override:
+    - rm -rf /usr/local/go
     - wget -O - https://storage.googleapis.com/golang/go$GOLANG_VERSION.linux-amd64.tar.gz | tar -v -C /usr/local -xzf -
-    - export PATH=$PATH:$GOROOT/bin
     - go version | grep $GOLANG_VERSION
+  cache_directories:
+    - /usr/local/go
 
 test:
   override:
