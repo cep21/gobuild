@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"flag"
 	"fmt"
 	"io"
@@ -11,18 +12,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
-	"strings"
-	"sync"
-
-	"time"
-
-	"strconv"
-
-	"bytes"
 	"runtime"
 	"runtime/pprof"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
 	"text/template"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"golang.org/x/net/context"
