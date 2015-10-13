@@ -1,0 +1,15 @@
+machine:
+  environment:
+    GOLANG_VERSION: 1.5.1
+    GO15VENDOREXPERIMENT: 1
+    GOROOT: /usr/local/go
+
+dependencies:
+  pre:
+    - wget -O - https://storage.googleapis.com/golang/go$GOLANG_VERSION.linux-amd64.tar.gz | tar -v -C /usr/local -xzf -
+    - export PATH=$PATH:$GOROOT/bin
+    - go version | grep $GOLANG_VERSION
+
+test:
+  override:
+    - go test ./... 
