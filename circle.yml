@@ -7,7 +7,7 @@ machine:
 dependencies:
   override:
     - sudo rm -rf /usr/local/go
-    - wget -O - https://storage.googleapis.com/golang/go$GOLANG_VERSION.linux-amd64.tar.gz | tar -v -C /usr/local -xzf -
+    - sudo wget -O - https://storage.googleapis.com/golang/go$GOLANG_VERSION.linux-amd64.tar.gz | tar -v -C /usr/local -xzf -
     - go version | grep $GOLANG_VERSION
   cache_directories:
     - /usr/local/go
