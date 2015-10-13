@@ -200,10 +200,8 @@ func (c *command) mergeFrom(from command) {
 func (g *gobuildInfo) StopCheck() (filenameMatcher, error) {
 	if stopStr, exists := g.Vars["stop_loading_parent"]; exists {
 		return &directoryContainsMatcher{arrIntToarrStr(stopStr.([]interface{}))}, nil
-	} else {
-		return defaultDecodedTemplate.StopCheck()
 	}
-
+	return defaultDecodedTemplate.StopCheck()
 }
 
 type directoryContainsMatcher struct {
@@ -373,47 +371,96 @@ func (g *gobuild) setupFlags() (string, []string, error) {
 	return cmdToRun, paths, nil
 }
 
-func (g *gobuild) main() error {
-	cmdToRun, paths, err := g.setupFlags()
+type pprofEnder struct {
+	fileOut     io.WriteCloser
+	profileName string
+}
+
+func (p *pprofEnder) Close() error {
+	pprof.StopCPUProfile()
+	if err := p.fileOut.Close(); err != nil {
+		return err
+	}
+	f, err := os.Create(p.profileName + ".heap")
 	if err != nil {
 		return err
 	}
+	if err := pprof.WriteHeapProfile(f); err != nil {
+		return err
+	}
+
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (g *gobuild) setupPprof() (io.Closer, error) {
 	if g.flagParser.pprofFilename != "" {
 		f, err := os.Create(g.flagParser.pprofFilename + ".cpu")
 		if err != nil {
-			return err
+			return nil, err
 		}
-		defer func() {
-			logIfError(g.log, "Unable to close file", f.Close())
-		}()
 		if err := pprof.StartCPUProfile(f); err != nil {
-			return err
+			return nil, err
 		}
-		defer pprof.StopCPUProfile()
-
-		defer func() {
-			f, err := os.Create(g.flagParser.pprofFilename + ".heap")
-			if err != nil {
-				g.log.Printf("Uanble to open pprof heap dump file: %s", err.Error())
-				return
-			}
-			logIfError(g.log, "Unable to write heap profile", pprof.WriteHeapProfile(f))
-
-			logIfError(g.log, "Unable to close heap file", f.Close())
-		}()
+		return &pprofEnder{
+			fileOut:     f,
+			profileName: g.flagParser.pprofFilename,
+		}, nil
 	}
+	return nil, nil
+}
 
-	g.log.Printf("Command:-%s- Paths: -%s-\n", cmdToRun, paths)
-
+func (g *gobuild) groupFiles(paths []string) ([]*groupToRun, error) {
 	filesToCheck, err := expandPaths(g.log, g.templateMap, paths)
+	if err != nil {
+		return nil, err
+	}
+	g.log.Printf("Checking files %s\n", strings.Join(filesToCheck, ","))
+	return groupFiles(filesToCheck, g.templateMap)
+}
+
+func (g *gobuild) installDependencies(ctx context.Context, groupsToRun []*groupToRun, cmdToRun string) error {
+	installs, err := getInstallCommands(groupsToRun, cmdToRun)
 	if err != nil {
 		return err
 	}
+	g.log.Printf("installs %+v\n", installs)
 
-	g.log.Printf("Checking files %s\n", strings.Join(filesToCheck, ","))
+	installs = condenseInstallCommands(installs)
+	g.log.Printf("installs %+v\n", installs)
+
+	// First step, setup installs if needed
+	for _, i := range installs {
+		if err := i.install(g.log, ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (g *gobuild) main() error {
+	ctx := context.Background()
+
+	cmdToRun, paths, err := g.setupFlags()
+	g.log.Printf("Command:-%s- Paths: -%s-\n", cmdToRun, paths)
+
+	if err != nil {
+		return err
+	}
+	closer, err := g.setupPprof()
+	if err != nil {
+		return err
+	}
+	if closer != nil {
+		defer func() {
+			logIfError(g.log, "Unable to close pprof setup", closer.Close())
+		}()
+	}
 
 	// Group every file by directory
-	groupsToRun, err := groupFiles(filesToCheck, g.templateMap)
+	groupsToRun, err := g.groupFiles(paths)
 	if err != nil {
 		return err
 	}
@@ -426,24 +473,8 @@ func (g *gobuild) main() error {
 		return err
 	}
 
-	installs, err := getInstallCommands(groupsToRun, cmdToRun)
-	if err != nil {
+	if err := g.installDependencies(ctx, groupsToRun, cmdToRun); err != nil {
 		return err
-	}
-
-	g.log.Printf("installs %+v\n", installs)
-
-	installs = condenseInstallCommands(installs)
-
-	g.log.Printf("installs %+v\n", installs)
-
-	ctx := context.Background()
-
-	// First step, setup installs if needed
-	for _, i := range installs {
-		if err := i.install(g.log, ctx); err != nil {
-			return err
-		}
 	}
 
 	cwd, err := os.Getwd()
@@ -459,7 +490,6 @@ func (g *gobuild) main() error {
 	if err != nil {
 		return err
 	}
-
 	g.log.Printf("execCmd %+v\n", execCmd)
 
 	primaryTemplate, err := g.templateMap.loadInDir(".")
@@ -646,18 +676,12 @@ type regexOutputProcessor struct {
 	defaultVars map[string]string
 }
 
-func (e regexOutputProcessor) ParseError(line string) *errorResult {
-	if line == "" {
-		return nil
-	}
-	matches := e.reg.FindStringSubmatch(line)
-	if matches == nil {
-		return nil
-	}
+func (e regexOutputProcessor) resolveMatch(matches []string) (*errorResult, map[string]string, error) {
 	ret := &errorResult{
 		linter: e.linter,
 		line:   1,
 	}
+
 	subNames := e.reg.SubexpNames()
 	varMap := make(map[string]string, len(matches)+len(e.defaultVars))
 	for k, v := range e.defaultVars {
@@ -674,21 +698,36 @@ func (e regexOutputProcessor) ParseError(line string) *errorResult {
 		case "line":
 			lineNum, err := strconv.ParseInt(match, 10, 32)
 			if err != nil {
-				e.errOut.Printf("Unable to parse line number out of %s: %s", line, err)
-				return nil
+				return nil, nil, err
 			}
 			ret.line = int(lineNum)
 		case "col":
 			col, err := strconv.ParseInt(match, 10, 32)
 			if err != nil {
-				e.errOut.Printf("Unable to parse col number out of %s: %s", line, err)
-				return nil
+				return nil, nil, err
 			}
 			ret.col = int(col)
 		case "message":
 			ret.message = match
 		}
 	}
+	return ret, varMap, nil
+}
+
+func (e regexOutputProcessor) ParseError(line string) *errorResult {
+	if line == "" {
+		return nil
+	}
+	matches := e.reg.FindStringSubmatch(line)
+	if matches == nil {
+		return nil
+	}
+
+	ret, varMap, err := e.resolveMatch(matches)
+	if err != nil {
+		return nil
+	}
+
 	w := bytes.Buffer{}
 	if err := e.template.Execute(&w, varMap); err != nil {
 		e.errOut.Printf("Unable to execute template: %s", err)
@@ -895,8 +934,8 @@ func (e errUnknownCommand) Error() string {
 }
 
 type flagParser struct {
-	flags     *flag.FlagSet
-	debugMode bool
+	flags         *flag.FlagSet
+	debugMode     bool
 	pprofFilename string
 }
 
@@ -945,6 +984,13 @@ func (t *templateFinder) getBuildInfo(buildFileName string) (*gobuildInfo, filen
 	return nil, sc, err2
 }
 
+func (t *templateFinder) parentInfo(stopCheck filenameMatcher, dirname string, parent string) (*gobuildInfo, error) {
+	if stopCheck.Matches(dirname) {
+		return t.defaultTemplate, nil
+	}
+	return t.loadInDir(parent)
+}
+
 func (t *templateFinder) loadInDir(dirname string) (*gobuildInfo, error) {
 	if template, exists := t.templatesForDirectories[dirname]; exists {
 		return template, nil
@@ -967,35 +1013,37 @@ func (t *templateFinder) loadInDir(dirname string) (*gobuildInfo, error) {
 	}
 
 	// At this point, we know dirname is a directory
-
 	buildFileName := filepath.Join(dirname, t.defaultTemplate.buildfileName())
 	thisDirectoryBuildInfo, stopCheck, err := t.getBuildInfo(buildFileName)
 	if err != nil {
 		return nil, err
 	}
 
-	parentInfo, err := func() (*gobuildInfo, error) {
-		if stopCheck.Matches(dirname) {
-			return t.defaultTemplate, nil
-		}
-		return t.loadInDir(parent)
-	}()
+	parentInfo, err := t.parentInfo(stopCheck, dirname, parent)
 	if err != nil {
 		return nil, err
 	}
 	if thisDirectoryBuildInfo == nil {
 		t.templatesForDirectories[dirname] = parentInfo
 	} else {
-		toRet := (&gobuildInfo{}).overrideFrom(*parentInfo).overrideFrom(*thisDirectoryBuildInfo)
-		for mname, m := range toRet.Macros {
-			if err := m.parseArgs(); err != nil {
-				return nil, err
-			}
-			m.macroName = mname
+		toRet, err := t.buildTemplate(parentInfo, thisDirectoryBuildInfo)
+		if err != nil {
+			return nil, err
 		}
 		t.templatesForDirectories[dirname] = toRet
 	}
 	return t.templatesForDirectories[dirname], nil
+}
+
+func (t *templateFinder) buildTemplate(parentInfo *gobuildInfo, thisDirectoryBuildInfo *gobuildInfo) (*gobuildInfo, error) {
+	toRet := (&gobuildInfo{}).overrideFrom(*parentInfo).overrideFrom(*thisDirectoryBuildInfo)
+	for mname, m := range toRet.Macros {
+		if err := m.parseArgs(); err != nil {
+			return nil, err
+		}
+		m.macroName = mname
+	}
+	return toRet, nil
 }
 
 func terminatingDirectoryName(dirname string) bool {
