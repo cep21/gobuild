@@ -19,6 +19,10 @@ import (
 
 	"strconv"
 
+	"bytes"
+	"runtime"
+	"text/template"
+
 	"github.com/BurntSushi/toml"
 	"golang.org/x/net/context"
 )
@@ -32,10 +36,15 @@ type macro struct {
 	AppendFiles    *bool    `toml:"append-files"`
 	StdoutRegex    string   `toml:"stdout-regex"`
 	StderrRegex    string   `toml:"stderr-regex"`
+	Message        *string  `toml:"message"`
 
-	stdoutReg *regexp.Regexp
-	stderrReg *regexp.Regexp
+	stdoutReg       *regexp.Regexp
+	stderrReg       *regexp.Regexp
+	macroName       string
+	messageTemplate *template.Template
 }
+
+var defaultMacroTemplate = template.Must(template.New("default_template").Parse("{{ .message }}"))
 
 func (m *macro) parseArgs() error {
 	var err error
@@ -51,28 +60,83 @@ func (m *macro) parseArgs() error {
 			return err
 		}
 	}
+	if m.Message != nil {
+		t := template.New("macro template")
+		templ, err := t.Parse(*m.Message)
+		if err != nil {
+			return err
+		}
+		m.messageTemplate = templ
+	} else {
+		m.messageTemplate = defaultMacroTemplate
+	}
 	return nil
 }
 
-func (m *macro) StdoutProcessor() outputProcessor {
-	if m.stdoutReg == nil {
-		return echoOutputProcessor{
-			checkName: *m.Cmd,
+type filenameConvertor struct {
+	joinDir             string
+	relativeToDirectory string
+}
+
+func (f *filenameConvertor) convertFilename(filename string) string {
+	//	fmt.Printf("Filename is %s for %s\n", filename, f.relativeToDirectory)
+	if filepath.IsAbs(filename) {
+		return f.rel(evalSymlinkIgnoreError(filepath.Clean(filename)))
+	}
+	//	fmt.Printf("Filename is not abs %s for %s for join %s\n", filename, f.relativeToDirectory, f.joinDir)
+	return f.rel(evalSymlinkIgnoreError(filepath.Clean(filepath.Join(f.joinDir, filename))))
+}
+
+func evalSymlinkIgnoreError(filename string) string {
+	ret, err := filepath.EvalSymlinks(filename)
+	if err != nil {
+		fmt.Printf("ERROR: %s for %s\n", err, filename)
+	}
+	return ret
+}
+
+func (f *filenameConvertor) rel(filename string) string {
+	if filepath.IsAbs(filename) {
+		absPath := evalSymlinkIgnoreError(f.relativeToDirectory)
+		if strings.HasPrefix(filename, absPath+string(filepath.Separator)) {
+			return strings.TrimPrefix(filename, absPath+string(filepath.Separator))
 		}
+		return strings.TrimPrefix(filename, absPath)
+	}
+	return filename
+}
+
+func (m *macro) StdoutProcessor(dirOfProcess string, relTo string, tmpl *template.Template, defaultVars map[string]string) outputProcessor {
+	if m.stdoutReg == nil {
+		return ignoreOutputProcessor{}
 	}
 	return &regexOutputProcessor{
-		reg: m.stdoutReg,
+		linter:      m.macroName,
+		reg:         m.stdoutReg,
+		template:    tmpl,
+		defaultVars: defaultVars,
+		errOut:      log.New(os.Stderr, "[StdoutProcessor]", 0),
+		convertor: filenameConvertor{
+			joinDir:             dirOfProcess,
+			relativeToDirectory: relTo,
+		},
 	}
 }
 
-func (m *macro) StderrProcessor() outputProcessor {
+func (m *macro) StderrProcessor(dirOfProcess string, relTo string, tmpl *template.Template, defaultVars map[string]string) outputProcessor {
 	if m.stderrReg == nil {
-		return echoOutputProcessor{
-			checkName: *m.Cmd,
-		}
+		return ignoreOutputProcessor{}
 	}
 	return &regexOutputProcessor{
-		reg: m.stderrReg,
+		linter:      m.macroName,
+		defaultVars: defaultVars,
+		reg:         m.stderrReg,
+		template:    tmpl,
+		errOut:      log.New(os.Stderr, "[StderrProcessor]", 0),
+		convertor: filenameConvertor{
+			joinDir:             dirOfProcess,
+			relativeToDirectory: relTo,
+		},
 	}
 }
 
@@ -123,8 +187,22 @@ type command struct {
 	RunNext []string `toml:"run-next"`
 }
 
+func (c *command) mergeFrom(from command) {
+	if c.Macros == nil {
+		c.Macros = from.Macros
+	}
+	if c.RunNext == nil {
+		c.RunNext = from.RunNext
+	}
+}
+
 func (g *gobuildInfo) StopCheck() (filenameMatcher, error) {
-	return &directoryContainsMatcher{arrIntToarrStr(g.Vars["stop_loading_parent"].([]interface{}))}, nil
+	if stopStr, exists := g.Vars["stop_loading_parent"]; exists {
+		return &directoryContainsMatcher{arrIntToarrStr(stopStr.([]interface{}))}, nil
+	} else {
+		return defaultDecodedTemplate.StopCheck()
+	}
+
 }
 
 type directoryContainsMatcher struct {
@@ -153,6 +231,16 @@ func (g *gobuildInfo) buildfileName() string {
 
 func (g *gobuildInfo) parrallelBuildCount() int64 {
 	return g.Vars["parallelBuildCount"].(int64)
+}
+
+func (g *gobuildInfo) varAsMap() map[string]string {
+	ret := make(map[string]string)
+	for k := range g.Vars {
+		if asString, ok := g.varAsString(k); ok {
+			ret[k] = asString
+		}
+	}
+	return ret
 }
 
 func (g *gobuildInfo) varAsString(name string) (string, bool) {
@@ -209,6 +297,15 @@ func (g *gobuildInfo) ignoredPaths() (filenameMatcher, error) {
 // information already in g, so it is the more important version
 func (g *gobuildInfo) overrideFrom(from gobuildInfo) *gobuildInfo {
 	// merge vars
+	if g.Vars == nil {
+		g.Vars = make(map[string]interface{})
+	}
+	if g.Macros == nil {
+		g.Macros = make(map[string]*macro)
+	}
+	if g.Commands == nil {
+		g.Commands = make(map[string]command)
+	}
 	for k, v := range from.Vars {
 		g.Vars[k] = v
 	}
@@ -221,10 +318,21 @@ func (g *gobuildInfo) overrideFrom(from gobuildInfo) *gobuildInfo {
 		}
 		oldMacro.mergeFrom(macro)
 	}
+
+	// merge commands
+	for cmdName, cmd := range from.Commands {
+		oldCmd, exists := g.Commands[cmdName]
+		if !exists {
+			g.Commands[cmdName] = cmd
+			continue
+		}
+		oldCmd.mergeFrom(cmd)
+	}
 	return g
 }
 
 func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
 	m := gobuild{
 		templateMap: templateFinder{
 			templatesForDirectories: make(map[string]*gobuildInfo),
@@ -259,7 +367,7 @@ func (g *gobuild) setupFlags() (string, []string, error) {
 		return "", nil, nil
 	}
 	if g.flagParser.debugMode {
-		g.log = log.New(os.Stderr, "gobuild", log.LstdFlags)
+		g.log = log.New(os.Stderr, "[gobuild]", log.LstdFlags|log.Lshortfile|log.Lmicroseconds)
 	}
 	return cmdToRun, paths, nil
 }
@@ -312,7 +420,16 @@ func (g *gobuild) main() error {
 		}
 	}
 
-	execCmd, err := getExecCommands(g.log, cmdToRun, groupsToRun)
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	rootDirConvertor := filenameConvertor{
+		joinDir:             cwd,
+		relativeToDirectory: evalSymlinkIgnoreError(cwd),
+	}
+
+	execCmd, err := getExecCommands(g.log, rootDirConvertor, cmdToRun, groupsToRun)
 	if err != nil {
 		return err
 	}
@@ -364,7 +481,6 @@ func drainOutputPipeline(outputs <-chan *errorResult, wg *sync.WaitGroup) {
 func drainExecutionPipeline(ctx context.Context, log *log.Logger, ch <-chan *cmdToProcess, out chan<- *errorResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for p := range ch {
-		log.Printf("Running %s", p.cmd)
 		procRunning := sync.WaitGroup{}
 		log.Printf("I would run %v %s\n", p, p.cmd)
 		stdoutStream := make(chan string, 1024)
@@ -380,7 +496,7 @@ func drainExecutionPipeline(ctx context.Context, log *log.Logger, ch <-chan *cmd
 		close(stdoutStream)
 		close(stderrStream)
 		procRunning.Wait()
-		log.Printf("Done Running %s", p.cmd)
+		//		log.Printf("Done Running %s", p.cmd)
 	}
 }
 
@@ -489,22 +605,19 @@ type outputProcessor interface {
 	ParseError(line string) *errorResult
 }
 
-type echoOutputProcessor struct {
-	checkName string
-}
+type ignoreOutputProcessor struct{}
 
-func (e echoOutputProcessor) ParseError(line string) *errorResult {
-	if line == "" {
-		return nil
-	}
-	return &errorResult{
-		path:    "hi",
-		message: line + "(" + e.checkName + ")",
-	}
+func (e ignoreOutputProcessor) ParseError(line string) *errorResult {
+	return nil
 }
 
 type regexOutputProcessor struct {
-	reg *regexp.Regexp
+	reg         *regexp.Regexp
+	linter      string
+	errOut      *log.Logger
+	convertor   filenameConvertor
+	template    *template.Template
+	defaultVars map[string]string
 }
 
 func (e regexOutputProcessor) ParseError(line string) *errorResult {
@@ -515,25 +628,34 @@ func (e regexOutputProcessor) ParseError(line string) *errorResult {
 	if matches == nil {
 		return nil
 	}
-	fmt.Printf("Checking line **%s^^\n", line)
-	ret := &errorResult{}
+	ret := &errorResult{
+		linter: e.linter,
+		line:   1,
+	}
 	subNames := e.reg.SubexpNames()
+	varMap := make(map[string]string, len(matches)+len(e.defaultVars))
+	for k, v := range e.defaultVars {
+		varMap[k] = v
+	}
 	for i, match := range matches {
 		varName := subNames[i]
+		if varName != "" {
+			varMap[varName] = match
+		}
 		switch varName {
 		case "path":
-			ret.path = match
+			ret.path = e.convertor.convertFilename(match)
 		case "line":
-			line, err := strconv.ParseInt(match, 10, 32)
+			lineNum, err := strconv.ParseInt(match, 10, 32)
 			if err != nil {
-				// do something?
+				e.errOut.Printf("Unable to parse line number out of %s: %s", line, err)
 				return nil
 			}
-			ret.line = int(line)
+			ret.line = int(lineNum)
 		case "col":
 			col, err := strconv.ParseInt(match, 10, 32)
 			if err != nil {
-				// do something?
+				e.errOut.Printf("Unable to parse col number out of %s: %s", line, err)
 				return nil
 			}
 			ret.col = int(col)
@@ -541,6 +663,12 @@ func (e regexOutputProcessor) ParseError(line string) *errorResult {
 			ret.message = match
 		}
 	}
+	w := bytes.Buffer{}
+	if err := e.template.Execute(&w, varMap); err != nil {
+		e.errOut.Printf("Unable to execute template: %s", err)
+		return nil
+	}
+	ret.message = w.String()
 	return ret
 }
 
@@ -569,6 +697,7 @@ type errorResult struct {
 	col      int
 	severity severity
 	message  string
+	linter   string
 }
 
 type severity int
@@ -582,7 +711,11 @@ func (s severity) String() string {
 }
 
 func (e *errorResult) String() string {
-	return fmt.Sprintf("%s:%d:%d:%s:%s", e.path, e.line, e.col, e.severity.String(), e.message)
+	col := ""
+	if e.col > 0 {
+		col = strconv.FormatInt(int64(e.col), 10)
+	}
+	return fmt.Sprintf("%s:%d:%s:%s:%s(%s)", e.path, e.line, col, e.severity.String(), e.message, e.linter)
 }
 
 type cmdToProcess struct {
@@ -592,11 +725,11 @@ type cmdToProcess struct {
 	execCodeProcessor exitProcessor
 }
 
-func rootPhaseForMacro(log *log.Logger, g *groupToRun, cmdToRun command) ([]*cmdToProcess, error) {
+func rootPhaseForMacro(log *log.Logger, rootDirConvertor filenameConvertor, g *groupToRun, cmdToRun command) ([]*cmdToProcess, error) {
 	ret := make([]*cmdToProcess, 0, len(cmdToRun.Macros))
 	for _, m := range cmdToRun.Macros {
 		macro := g.tmpl.Macros[m]
-		log.Printf("Looking at macro %+v %d", macro)
+		log.Printf("Looking at macro %+v", macro)
 		ifFilesMatcher, err := macro.ifFilesMatcher()
 		if err != nil {
 			return nil, err
@@ -620,8 +753,10 @@ func rootPhaseForMacro(log *log.Logger, g *groupToRun, cmdToRun command) ([]*cmd
 		if macro.AppendFiles != nil && *macro.AppendFiles {
 			cmd.args = append(cmd.args, matchedFiles...)
 		}
-		stdoutProcessor := macro.StdoutProcessor()
-		stderrProcessor := macro.StderrProcessor()
+		defaultVars := g.tmpl.varAsMap()
+		relPath := "./" + rootDirConvertor.convertFilename(g.cwd)
+		stdoutProcessor := macro.StdoutProcessor(relPath, rootDirConvertor.relativeToDirectory, macro.messageTemplate, defaultVars)
+		stderrProcessor := macro.StderrProcessor(relPath, rootDirConvertor.relativeToDirectory, macro.messageTemplate, defaultVars)
 		ret = append(ret, &cmdToProcess{
 			cmd:               &cmd,
 			stdoutProcessor:   stdoutProcessor,
@@ -632,22 +767,23 @@ func rootPhaseForMacro(log *log.Logger, g *groupToRun, cmdToRun command) ([]*cmd
 	return ret, nil
 }
 
-func getExecCommands(log *log.Logger, cmd string, groupsToRun []*groupToRun) ([][]*cmdToProcess, error) {
+func getExecCommands(log *log.Logger, rootDirConvertor filenameConvertor, cmd string, groupsToRun []*groupToRun) ([][]*cmdToProcess, error) {
 	phases := [][]*cmdToProcess{make([]*cmdToProcess, 0, len(groupsToRun))}
 	for _, g := range groupsToRun {
 		cmdToRun, exists := g.tmpl.command(cmd)
 		if !exists {
 			return nil, errUnknownCommand(cmd)
 		}
+		log.Printf("Files are %s", strings.Join(g.files, ","))
 
-		rootPhases, err := rootPhaseForMacro(log, g, cmdToRun)
+		rootPhases, err := rootPhaseForMacro(log, rootDirConvertor, g, cmdToRun)
 		if err != nil {
 			return nil, err
 		}
 		phases[0] = append(phases[0], rootPhases...)
 
 		for _, runNext := range cmdToRun.RunNext {
-			nextPhase, err := getExecCommands(log, runNext, []*groupToRun{g})
+			nextPhase, err := getExecCommands(log, rootDirConvertor, runNext, []*groupToRun{g})
 			if err != nil {
 				return nil, err
 			}
@@ -740,7 +876,7 @@ type flagParser struct {
 var defaultPaths = []string{"./..."}
 
 func (f *flagParser) SetupVars() {
-	f.flags.BoolVar(&f.debugMode, "verbose", false, "Will enable verbose logging to stderr")
+	f.flags.BoolVar(&f.debugMode, "debug", false, "Will enable debug logging to stderr")
 	f.flags.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of gobuild\n")
 		f.flags.PrintDefaults()
@@ -798,6 +934,9 @@ func (t *templateFinder) loadInDir(dirname string) (*gobuildInfo, error) {
 	if !l.IsDir() {
 		return t.loadInDir(parent)
 	}
+	if parent == "." {
+		parent = ""
+	}
 
 	// At this point, we know dirname is a directory
 
@@ -820,10 +959,11 @@ func (t *templateFinder) loadInDir(dirname string) (*gobuildInfo, error) {
 		t.templatesForDirectories[dirname] = parentInfo
 	} else {
 		toRet := (&gobuildInfo{}).overrideFrom(*parentInfo).overrideFrom(*thisDirectoryBuildInfo)
-		for _, m := range toRet.Macros {
+		for mname, m := range toRet.Macros {
 			if err := m.parseArgs(); err != nil {
 				return nil, err
 			}
+			m.macroName = mname
 		}
 		t.templatesForDirectories[dirname] = toRet
 	}
@@ -831,7 +971,7 @@ func (t *templateFinder) loadInDir(dirname string) (*gobuildInfo, error) {
 }
 
 func terminatingDirectoryName(dirname string) bool {
-	return dirname == "" || dirname == "." || dirname == string(filepath.Separator)
+	return dirname == "" || dirname == string(filepath.Separator)
 }
 
 func mustTomlDecode(s string, into interface{}) toml.MetaData {
@@ -847,8 +987,9 @@ var defaultDecodedTemplateMeta toml.MetaData
 
 func init() {
 	defaultDecodedTemplateMeta = mustTomlDecode(defaultTemplate, &defaultDecodedTemplate)
-	for _, m := range defaultDecodedTemplate.Macros {
+	for mname, m := range defaultDecodedTemplate.Macros {
 		mustNotNil(m.parseArgs())
+		m.macroName = mname
 	}
 }
 
@@ -887,7 +1028,7 @@ func (a anyMatches) Matches(filename string) bool {
 	return false
 }
 
-func walkCallback(log *log.Logger, templateMap templateFinder, files map[string]struct{}) filepath.WalkFunc {
+func walkCallback(log *log.Logger, templateMap templateFinder, files map[string]struct{}, onlyAllowedDir *string) filepath.WalkFunc {
 	return func(p string, i os.FileInfo, err error) error {
 		log.Printf("At %s\n", p)
 		if err != nil {
@@ -902,7 +1043,7 @@ func walkCallback(log *log.Logger, templateMap templateFinder, files map[string]
 		if err != nil {
 			return err
 		}
-		log.Printf("Checking if %s matches", p)
+		log.Printf("Checking if %s matches with ignores %+v", p, ignorePaths)
 		if ignorePaths.Matches(finalPath) {
 			if i.IsDir() {
 				return filepath.SkipDir
@@ -910,7 +1051,11 @@ func walkCallback(log *log.Logger, templateMap templateFinder, files map[string]
 			return nil
 		}
 
-		log.Printf("%s does match", p)
+		if onlyAllowedDir != nil && p != *onlyAllowedDir && i.IsDir() {
+			return filepath.SkipDir
+		}
+
+		log.Printf("%s should be considered!", p)
 		if !i.IsDir() {
 			files[finalPath] = struct{}{}
 		}
@@ -919,9 +1064,8 @@ func walkCallback(log *log.Logger, templateMap templateFinder, files map[string]
 }
 
 func expandPaths(log *log.Logger, templateMap templateFinder, paths []string) ([]string, error) {
-	// ignorePaths filenameMatcher
 	files := make(map[string]struct{}, len(paths))
-	cb := walkCallback(log, templateMap, files)
+	cb := walkCallback(log, templateMap, files, nil)
 	for _, path := range paths {
 		if strings.HasSuffix(path, "/...") {
 			log.Printf("At %s\n", path)
@@ -929,7 +1073,10 @@ func expandPaths(log *log.Logger, templateMap templateFinder, paths []string) ([
 				return nil, err
 			}
 		} else {
-			files[filepath.Clean(path)] = struct{}{}
+			dirCallback := walkCallback(log, templateMap, files, &path)
+			if err := filepath.Walk(path, dirCallback); err != nil {
+				return nil, err
+			}
 		}
 	}
 	out := make([]string, 0, len(files))
@@ -981,9 +1128,10 @@ func logIfError(log *log.Logger, msg string, err error) {
 // given context closes.  If the context closes early, it will try to kill the spawned connection.
 func (c *cmdInDir) exec(ctx context.Context, log *log.Logger, stdoutStream chan<- string, stderrStream chan<- string) error {
 	startTime := time.Now()
+	log.Printf("-> Starting %s", c.String())
 	defer func() {
 		endTime := time.Now()
-		log.Printf("*** %s =>  %s\n", c.String(), endTime.Sub(startTime).String())
+		log.Printf("<- Finished %s =>  %s\n", c.String(), endTime.Sub(startTime).String())
 	}()
 	r := exec.Command(c.cmd, c.args...)
 	r.Dir = c.cwd
@@ -991,10 +1139,11 @@ func (c *cmdInDir) exec(ctx context.Context, log *log.Logger, stdoutStream chan<
 	stderrReader, stderrWriter := io.Pipe()
 	r.Stdout = stdoutWriter
 	r.Stderr = stderrWriter
-	wg := sync.WaitGroup{}
-	wg.Add(2)
-	go streamLines(stdoutReader, stdoutStream, &wg)
-	go streamLines(stderrReader, stderrStream, &wg)
+
+	inputStreamWG := sync.WaitGroup{}
+	inputStreamWG.Add(2)
+	go streamLines(stdoutReader, stdoutStream, &inputStreamWG)
+	go streamLines(stderrReader, stderrStream, &inputStreamWG)
 
 	if err := r.Start(); err != nil {
 		return err
@@ -1005,10 +1154,11 @@ func (c *cmdInDir) exec(ctx context.Context, log *log.Logger, stdoutStream chan<
 	var waitError error
 	go func() {
 		defer close(doneWaiting)
+		log.Printf("Waiting for %s to end Wait() call\n", c.String())
 		waitError = r.Wait()
 		logIfError(log, "Unable to close stdout writer", stdoutWriter.Close())
 		logIfError(log, "Unable to close stderr writer", stderrWriter.Close())
-		wg.Wait()
+		inputStreamWG.Wait()
 	}()
 	select {
 	case <-ctx.Done():

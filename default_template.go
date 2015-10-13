@@ -14,7 +14,7 @@ var defaultTemplate = `
 [vars]
   duplthreshold = 75
   min_confidence = 0.8
-  ignoreDirs = ["^vendor$", "^Godeps$", "^\\..+$"]
+  ignoreDirs = ["^vendor$", "^Godeps$", "^\\..+$", "^.git$"]
   default = "check"
   buildfileName = "gobuild.toml"
   parallelBuildCount = 16
@@ -37,7 +37,7 @@ var defaultTemplate = `
 [macro.deadcode]
   cmd="deadcode"
   goget="github.com/remyoudompheng/go-misc/deadcode"
-  stdout-regex = " (?P<path>[^:]+):(?P<line>\\d+):(?P<col>\\d+):\\s*(?P<message>.*)$"
+  stderr-regex = " (?P<path>[^:]+):(?P<line>\\d+):(?P<col>\\d+):\\s*(?P<message>.*)$"
   args=["."]
   if-files=[".*\\.go"]
 
@@ -56,6 +56,7 @@ var defaultTemplate = `
   args=["-abspath"]
   stdout-regex="^(?P<path>[^:]+):(?P<line>\\d+):(?P<col>\\d+)\\t(?P<message>.*)$"
   if-files=[".*\\.go"]
+  message = "error return value not checked ({{ .message }})"
   append-files=true
 
 [macro.gocyclo]
@@ -64,6 +65,7 @@ var defaultTemplate = `
   args=["-over", "{gocyclo_over}"]
   stdout-regex = "^(?P<cyclo>\\d+)\\s+\\S+\\s(?P<function>\\S+)\\s+(?P<path>[^:]+):(?P<line>\\d+):(\\d+)$"
   append-files=true
+  message="cyclomatic complexity {{ .cyclo }} of function {{ .function }}() is high (> {{ .gocyclo_over }})"
   if-files=[".*\\.go"]
 
 [macro.golint]
@@ -79,22 +81,23 @@ var defaultTemplate = `
   goget="github.com/gordonklaus/ineffassign"
   args=["-n", "."]
   if-files=[".*\\.go"]
-  stderr-regex = "^(?P<path>[^\\s][^:]+?\\.go):(?P<line>\\d+):(?P<col>\\d+):\\s*(?P<message>.*)$"
+  stdout-regex = "^(?P<path>[^\\s][^:]+?\\.go):(?P<line>\\d+):(?P<col>\\d+):\\s*(?P<message>.*)$"
 
 [macro.structcheck]
   cmd="structcheck"
   goget="github.com/opennota/check/cmd/structcheck"
   args=["."]
-  stderr-regex = "^(?:[^:]+: )?(?P<path>[^:]+):(?P<line>\\d+):(?P<col>\\d+):\\s*(?P<message>.+)$"
+  stdout-regex = "^(?:[^:]+: )?(?P<path>[^:]+):(?P<line>\\d+):(?P<col>\\d+):\\s*(?P<message>.+)$"
   if-files=[".*\\.go"]
+  message="unused struct field {{ .message }}"
 
 [macro.varcheck]
   cmd="varcheck"
   goget="github.com/opennota/check/cmd/varcheck"
-  args=[]
-  stderr-regex = "^(?:[^:]+: )?(?P<path>[^:]+):(?P<line>\\d+):(?P<col>\\d+):\\s*(?P<message>\\w+)$"
+  args=["."]
+  stdout-regex = "^(?:[^:]+: )?(?P<path>[^:]+):(?P<line>\\d+):(?P<col>\\d+):\\s*(?P<message>\\w+)$"
   if-files=[".*\\.go"]
-  append-files=true
+  message = "unused global variable {{ .message }}"
 
 [macro.vet]
   cmd="go"
@@ -106,13 +109,15 @@ var defaultTemplate = `
 [macro.vetshadow]
   cmd="go"
   args=["tool", "vet", "--shadow"]
-  stdout-regex = "^(?P<path>[^\\s][^:]+?\\.go):(?P<line>\\d+):\\s*(?P<message>.*)$"
+  stderr-regex = "^(?P<path>[^\\s][^:]+?\\.go):(?P<line>\\d+):\\s*(?P<message>.*)$"
   if-files=[".*\\.go"]
   append-files=true
 
 [macro.gofmt]
   cmd="gofmt"
   args=["-s", "-l"]
+  stdout-regex = "^(?P<path>.*)$"
+  message = "file is not gofmted"
   if-files=[".*\\.go"]
   append-files=true
 
@@ -120,6 +125,8 @@ var defaultTemplate = `
   cmd="goimports"
   args=["-l"]
   if-files=[".*\\.go"]
+  stdout-regex = "^(?P<path>.*)$"
+  message = "file is not goimported"
   goget="golang.org/x/tools/cmd/goimports"
   append-files=true
 
