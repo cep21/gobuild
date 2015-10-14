@@ -6,6 +6,7 @@ machine:
     GOPATH: "$HOME/.go"
     PATH: "$GOROOT/bin:$GOPATH/bin:$PATH"
     IMPORT_PATH: "github.com/cep21/gobuild"
+    SRC_PATH: "$GOPATH/src/$IMPORT_PATH"
 
 # TODO: Cache this if it exists???
 dependencies:
@@ -13,24 +14,21 @@ dependencies:
     # All the versions of 'go' go here.
     - /usr/local/gover
   override:
-    - sudo rm -rf /usr/local/go
-    - mkdir -p /usr/local/gover
-    - [ -d /usr/local/gover/go1.5.1 ] || wget -O - https://storage.googleapis.com/golang/go1.5.1.linux-amd64.tar.gz | sudo tar -v -C /usr/local/gover/go1.5.1 -xzf -
-    - [ -d /usr/local/gover/go1.4.2 ] || wget -O - https://storage.googleapis.com/golang/go1.4.2.linux-amd64.tar.gz | sudo tar -v -C /usr/local/gover/go1.4.2 -xzf -
-    - ln -s /usr/local/gover/go1.5.1 /usr/local/go
+    - ./install_all_go_versions.sh
 
 test:
   override:
-    - mkdir -p "$GOPATH/src/$IMPORT_PATH"
-    - rsync -azC --delete ./ "$GOPATH/src/$IMPORT_PATH/"
-    - cd $GOPATH/src/github.com/cep21/gobuild && go test ./... 
+    - mkdir -p $SRC_PATH
+    - rsync -azC --delete ./ $SRC_PATH
+    - cd $SRC_PATH && go test ./... 
+  post:
+    - go get github.com/mitchellh/gox
+    - cd $SRC_PATH && gox -ldflags "-X main.Version $BUILD_VERSION -X main.BuildDate $BUILD_DATE" -output "$CIRCLE_ARTIFACTS/dist/gobuild_{{.OS}}_{{.Arch}}"
 
 deployment:
   release:
     tag: /v[0-9]+(\.[0-9]+)*/
     owner: cep21
     commands:
-      - go get github.com/mitchellh/gox
       - go get github.com/tcnksm/ghr
-      - gox -ldflags "-X main.Version $BUILD_VERSION -X main.BuildDate $BUILD_DATE" -output "$CIRCLE_ARTIFACTS/dist/ncd_{{.OS}}_{{.Arch}}"
       - ghr -t $GITHUB_TOKEN -u $CIRCLE_PROJECT_USERNAME -r $CIRCLE_PROJECT_REPONAME --replace `git describe --tags` $CIRCLE_ARTIFACTS/dist/
