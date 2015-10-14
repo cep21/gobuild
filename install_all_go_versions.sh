@@ -11,7 +11,7 @@ export GOINTO="/usr/local/gover"
 #TODO: Move these checks into vendor?
 install_go_ver() {
   if [ ! -d $GOINTO/go"$1" ]; then
-    mkdir $GOINTO/go"$1"
+    sudo mkdir $GOINTO/go"$1"
     wget -O - https://storage.googleapis.com/golang/go"$1".linux-amd64.tar.gz | sudo tar -v -C $GOINTO/go"$1" -xzf -
   fi
 }
