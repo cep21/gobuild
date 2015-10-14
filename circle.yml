@@ -20,5 +20,5 @@ dependencies:
 test:
   override:
     - mkdir -p "$GOPATH/src/$IMPORT_PATH"
-    - rsync -azC --delete ./ "$MYGOPATH/src/$IMPORT_PATH/"
+    - rsync -azC --delete ./ "$GOPATH/src/$IMPORT_PATH/"
     - go test ./... 
