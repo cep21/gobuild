@@ -3,7 +3,12 @@ machine:
     GOLANG_VERSION: 1.5.1
     GO15VENDOREXPERIMENT: 1
     GOROOT: /usr/local/go
+    GOPATH: "$HOME/.go"
+    PATH: "$GOROOT/bin:$GOPATH/bin:$PATH"
 
+    IMPORT_PATH: "github.com/cep21/gobuild"
+
+# TODO: Cache this if it exists???
 dependencies:
   override:
     - sudo rm -rf /usr/local/go
@@ -14,4 +19,6 @@ dependencies:
 
 test:
   override:
+    - mkdir -p "$GOPATH/src/$IMPORT_PATH"
+    - rsync -azC --delete ./ "$MYGOPATH/src/$IMPORT_PATH/"
     - go test ./... 
