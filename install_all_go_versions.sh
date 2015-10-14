@@ -22,4 +22,4 @@ sudo mkdir -p $GOINTO
 install_go_ver 1.5.1
 install_go_ver 1.4.2
 
-sudo ln -s $GOINTO/go1.5.1 /usr/local/go
+sudo ln -s $GOINTO/go1.5.1/go /usr/local/go
