@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BurntSushi/toml"
-	. "github.com/smartystreets/goconvey/convey"
-	"golang.org/x/net/context"
+	"github.com/cep21/gobuild/internal/github.com/BurntSushi/toml"
+	. "github.com/cep21/gobuild/internal/github.com/smartystreets/goconvey/convey"
+	"github.com/cep21/gobuild/internal/golang.org/x/net/context"
 )
 
 func TestLoadMacro(t *testing.T) {

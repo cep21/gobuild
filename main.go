@@ -21,8 +21,8 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/BurntSushi/toml"
-	"golang.org/x/net/context"
+	"github.com/cep21/gobuild/internal/github.com/BurntSushi/toml"
+	"github.com/cep21/gobuild/internal/golang.org/x/net/context"
 )
 
 type macro struct {

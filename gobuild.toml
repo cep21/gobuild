@@ -1,2 +1,2 @@
 [vars]
-  ignoreDirs = ["^_example$",  "^.git$"]
+  ignoreDirs = ["^_example$",  "^.git$", "^internal$"]
