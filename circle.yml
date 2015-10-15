@@ -23,7 +23,7 @@ test:
     - cd $SRC_PATH && go test ./... 
   post:
     - go get github.com/mitchellh/gox
-    - cd $SRC_PATH && gox -ldflags "-X main.Version $BUILD_VERSION -X main.BuildDate $BUILD_DATE" -output "$CIRCLE_ARTIFACTS/dist/gobuild_{{.OS}}_{{.Arch}}"
+    - cd $SRC_PATH && gox -output "$CIRCLE_ARTIFACTS/dist/gobuild_{{.OS}}_{{.Arch}}"
 
 deployment:
   release:

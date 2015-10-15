@@ -88,7 +88,7 @@ func (f *filenameConvertor) convertFilename(filename string) string {
 func evalSymlinkIgnoreError(filename string) string {
 	ret, err := filepath.EvalSymlinks(filename)
 	if err != nil {
-		fmt.Printf("ERROR: %s for %s\n", err, filename)
+		fmt.Printf("ERROR: unable to evaluate symlink for %s: %s\n", filename, err)
 	}
 	return ret
 }
@@ -494,6 +494,10 @@ func (g *gobuild) main() error {
 		return err
 	}
 
+	buf := &bytes.Buffer{}
+	toml.NewEncoder(buf).Encode(primaryTemplate)
+	g.log.Println(buf.String())
+
 	runPhases(ctx, g.log, primaryTemplate, execCmd)
 	return nil
 }
@@ -816,7 +820,10 @@ func rootPhaseForMacro(log *log.Logger, rootDirConvertor filenameConvertor, g *g
 			cmd.args = append(cmd.args, matchedFiles...)
 		}
 		defaultVars := g.tmpl.varAsMap()
-		relPath := "./" + rootDirConvertor.convertFilename(g.cwd)
+		relPath := rootDirConvertor.convertFilename(g.cwd)
+		if !filepath.IsAbs(relPath) {
+			relPath = "./" + relPath
+		}
 		stdoutProcessor := macro.StdoutProcessor(relPath, rootDirConvertor.relativeToDirectory, macro.messageTemplate, defaultVars)
 		stderrProcessor := macro.StderrProcessor(relPath, rootDirConvertor.relativeToDirectory, macro.messageTemplate, defaultVars)
 		ret = append(ret, &cmdToProcess{
@@ -992,6 +999,13 @@ func (t *templateFinder) loadInDir(dirname string) (*gobuildInfo, error) {
 	if template, exists := t.templatesForDirectories[dirname]; exists {
 		return template, nil
 	}
+	if dirname == "." {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+		dirname = filepath.Clean(cwd)
+	}
 	if terminatingDirectoryName(dirname) {
 		t.templatesForDirectories[dirname] = t.defaultTemplate
 		return t.templatesForDirectories[dirname], nil
@@ -1004,9 +1018,6 @@ func (t *templateFinder) loadInDir(dirname string) (*gobuildInfo, error) {
 	parent := filepath.Dir(dirname)
 	if !l.IsDir() {
 		return t.loadInDir(parent)
-	}
-	if dirname == "." {
-		parent = ""
 	}
 
 	// At this point, we know dirname is a directory

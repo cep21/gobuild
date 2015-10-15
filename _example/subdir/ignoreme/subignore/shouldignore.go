@@ -1,0 +1,4 @@
+package ignoreme
+
+func deadcode() {
+}

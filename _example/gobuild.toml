@@ -1,0 +1,5 @@
+[vars]
+  ignoreDirs = ["^ignoreme$"]
+
+[cmd.custom]
+  macros = ["golint"]
