@@ -1123,7 +1123,7 @@ func walkCallback(log *log.Logger, templateMap templateFinder, files map[string]
 			return err
 		}
 		finalPath := filepath.Clean(p)
-		template, err := templateMap.loadInDir(p)
+		template, err := templateMap.loadInDir(filepath.Dir(p))
 		if err != nil {
 			return err
 		}
