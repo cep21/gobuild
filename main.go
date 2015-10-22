@@ -73,6 +73,9 @@ func (g *gobuildMain) getArgs() (string, []string) {
 }
 
 func (g *gobuildMain) fix(ctx context.Context, dirs []string) error {
+	if err := g.install(ctx, dirs); err != nil {
+		return wraperr(err, "cannot install subcommands")
+	}
 	c := fixCmd{
 		dirs:       dirs,
 		chunkSize:  g.flags.chunkSize,
@@ -83,6 +86,9 @@ func (g *gobuildMain) fix(ctx context.Context, dirs []string) error {
 }
 
 func (g *gobuildMain) lint(ctx context.Context, dirs []string) error {
+	if err := g.install(ctx, dirs); err != nil {
+		return wraperr(err, "cannot install subcommands")
+	}
 	c := gometalinterCmd{
 		verboseLog: g.verboseLog,
 		errLog:     g.errLog,
@@ -110,6 +116,9 @@ func (g *gobuildMain) build(ctx context.Context, dirs []string) error {
 }
 
 func (g *gobuildMain) dupl(ctx context.Context, dirs []string) error {
+	if err := g.install(ctx, dirs); err != nil {
+		return wraperr(err, "cannot install subcommands")
+	}
 	tmpl, err := g.tc.loadInDir(".")
 	if err != nil {
 		return wraperr(err, "cannot load root dir template")
