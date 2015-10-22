@@ -11,7 +11,7 @@ import (
 
 	"errors"
 
-	"golang.org/x/net/context"
+	"github.com/cep21/gobuild/internal/golang.org/x/net/context"
 )
 
 type gometalinterCmd struct {

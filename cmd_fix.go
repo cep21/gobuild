@@ -4,7 +4,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"golang.org/x/net/context"
+	"github.com/cep21/gobuild/internal/golang.org/x/net/context"
 )
 
 type fixCmd struct {

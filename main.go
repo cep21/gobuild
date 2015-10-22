@@ -10,7 +10,7 @@ import (
 
 	"io"
 
-	"golang.org/x/net/context"
+	"github.com/cep21/gobuild/internal/golang.org/x/net/context"
 )
 
 type gobuildMain struct {
@@ -145,6 +145,10 @@ func (g *gobuildMain) test(ctx context.Context, dirs []string) error {
 	if err != nil {
 		return wraperr(err, "cannot find *.go files in dirs")
 	}
+	fullOut, err := os.Create("/tmp/a/full_coverage_output.cover")
+	if err != nil {
+		return wraperr(err, "cannot create full coverage profile file")
+	}
 	c := goCoverageCheck{
 		dirs:               testDirs,
 		cache:              &g.tc,
@@ -154,8 +158,11 @@ func (g *gobuildMain) test(ctx context.Context, dirs []string) error {
 		requiredCoverage:   1,
 		verboseLog:         g.verboseLog,
 		errLog:             g.errLog,
+		fullCoverageOutput: fullOut,
 	}
-	return c.Run(ctx)
+	e1 := c.Run(ctx)
+	e2 := fullOut.Close()
+	return multiErr([]error{e1, e2})
 }
 
 func (g *gobuildMain) check(ctx context.Context, dirs []string) error {

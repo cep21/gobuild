@@ -4,7 +4,7 @@ import (
 	"io"
 	"os/exec"
 
-	"golang.org/x/net/context"
+	"github.com/cep21/gobuild/internal/golang.org/x/net/context"
 )
 
 type cmdBuild struct {

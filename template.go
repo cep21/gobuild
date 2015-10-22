@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/BurntSushi/toml"
+	"github.com/cep21/gobuild/internal/github.com/BurntSushi/toml"
 )
 
 type buildTemplate struct {

@@ -1,5 +1,5 @@
 [vars]
-  ignoreDirs = [".git", "_example"]
+  ignoreDirs = [".git", "_example", "internal"]
 
 [install]
   [install.goget]

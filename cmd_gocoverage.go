@@ -8,8 +8,9 @@ import (
 
 	"strings"
 
-	"golang.org/x/net/context"
-	"golang.org/x/tools/cover"
+	"github.com/cep21/gobuild/internal/golang.org/x/net/context"
+	"github.com/cep21/gobuild/internal/golang.org/x/tools/cover"
+	"bufio"
 )
 
 type goCoverageCheck struct {
@@ -21,16 +22,27 @@ type goCoverageCheck struct {
 	requiredCoverage   float64
 	verboseLog         logger
 	errLog             logger
+
+	fullCoverageOutput io.Writer
 }
 
 func (g *goCoverageCheck) Run(ctx context.Context) error {
 	allErrs := make([]error, 0, len(g.dirs))
+	allCoverProfiles := make([]string, 0, len(g.dirs))
 	for _, d := range g.dirs {
 		g.verboseLog.Printf("Running test %s", d)
-		if err := g.runForDir(d); err != nil {
+		coverageFilename, err := g.runForDir(d)
+		if err != nil {
 			g.errLog.Printf("Test failure on %s: %s", d, err.Error())
 			allErrs = append(allErrs, err)
 		}
+		if coverageFilename != "" {
+			allCoverProfiles = append(allCoverProfiles, coverageFilename)
+		}
+	}
+
+	if err := g.combineCoverageProfiles(allCoverProfiles); err != nil {
+		allErrs = append(allErrs, err)
 	}
 	return multiErr(allErrs)
 }
@@ -41,24 +53,60 @@ type hasName interface {
 
 var _ hasName = &os.File{}
 
-func (g *goCoverageCheck) runForDir(dir string) error {
+func (g *goCoverageCheck) combineCoverageProfiles(filenames []string) error {
+	writtenHead := false
+	for _, filename := range filenames {
+		f, err := os.Open(filename)
+		if err != nil {
+			return wraperr(err, "cannot open file %s", filename)
+		}
+		s := bufio.NewScanner(f)
+		for s.Scan() {
+			curLine := s.Text()
+			if strings.HasPrefix(curLine, "mode:") {
+				if !writtenHead {
+					if _, err := io.WriteString(g.fullCoverageOutput, curLine); err != nil {
+						return wraperr(err, "cannot write to coverprofile")
+					}
+					if _, err := io.WriteString(g.fullCoverageOutput, "\n"); err != nil {
+						return wraperr(err, "cannot write to coverprofile")
+					}
+					writtenHead = true
+				}
+				continue
+			}
+			if _, err := io.WriteString(g.fullCoverageOutput, curLine); err != nil {
+				return wraperr(err, "cannot write to coverprofile")
+			}
+			if _, err := io.WriteString(g.fullCoverageOutput, "\n"); err != nil {
+				return wraperr(err, "cannot write to coverprofile")
+			}
+		}
+		if err := f.Close(); err != nil {
+			return wraperr(err, "cannot close coverprofile file %s", filename)
+		}
+	}
+	return nil
+}
+
+func (g *goCoverageCheck) runForDir(dir string) (string, error) {
 	template, err := g.cache.loadInDir(dir)
 	if err != nil {
-		return wraperr(err, "unable to load cache for %s", dir)
+		return "", wraperr(err, "unable to load cache for %s", dir)
 	}
 	coverArgs := append([]string{"test", "-v"}, template.TestCoverageArgs()...)
 	cmdName := "go"
 	coverprofile, err := g.coverProfileOutTo.GetCmdOutput(dir)
 	if err != nil {
-		return wraperr(err, "coverprofile generation failed for %s", dir)
+		return "", wraperr(err, "coverprofile generation failed for %s", dir)
 	}
 	stdout, err := g.testStdoutOutputTo.GetCmdOutput(dir)
 	if err != nil {
-		return wraperr(err, "stdout generation failed for %s", dir)
+		return "", wraperr(err, "stdout generation failed for %s", dir)
 	}
 	stderr, err := g.testStderrOutputTo.GetCmdOutput(dir)
 	if err != nil {
-		return wraperr(err, "stderr generation failed for %s", dir)
+		return "", wraperr(err, "stderr generation failed for %s", dir)
 	}
 	for _, s := range []io.Closer{stdout, stderr} {
 		defer func(s io.Closer) {
@@ -71,7 +119,7 @@ func (g *goCoverageCheck) runForDir(dir string) error {
 	coverArgs = append(coverArgs, "-coverprofile", coverprofileName, ".")
 
 	if err := coverprofile.Close(); err != nil {
-		return wraperr(err, "unable to generate coverprofile file")
+		return "", wraperr(err, "unable to generate coverprofile file")
 	}
 
 	cmd := exec.Command(cmdName, coverArgs...)
@@ -81,17 +129,17 @@ func (g *goCoverageCheck) runForDir(dir string) error {
 	g.verboseLog.Printf("Running [cmd=%s args=%s dir=%s]", cmd.Path, strings.Join(cmd.Args, " "), cmd.Dir)
 	err = cmd.Run()
 	if err != nil {
-		return wraperr(err, "test failed for %s", dir)
+		return coverprofileName, wraperr(err, "test failed for %s", dir)
 	}
 
 	coverage, err := calculateCoverage(coverprofileName)
 	if err != nil {
-		return wraperr(err, "unable to calculate coverage")
+		return coverprofileName, wraperr(err, "unable to calculate coverage")
 	}
 	if coverage+.001 < g.requiredCoverage {
-		return fmt.Errorf("code coverage %f < required %f for %s", coverage, g.requiredCoverage, dir)
+		return coverprofileName, fmt.Errorf("code coverage %f < required %f for %s", coverage, g.requiredCoverage, dir)
 	}
-	return nil
+	return coverprofileName, nil
 }
 
 func calculateCoverage(coverprofile string) (float64, error) {

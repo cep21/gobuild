@@ -116,12 +116,12 @@ func (d *fileStreamer) GetCmdOutput(cmdName string) (io.WriteCloser, error) {
 
 func inDirStreamer(dir string, suffix string) *fileStreamer {
 	defaultVars := map[string]interface{}{
-		"dir": dir,
+		"dir":    dir,
 		"suffix": suffix,
 	}
 	funcMap := template.FuncMap{
 		"CreateName": func(dir string, cmd string) string {
-			return filepath.Clean(filepath.Join(dir, "coverage_" + sanitizeFilename(cmd)))
+			return filepath.Clean(filepath.Join(dir, "coverage_"+sanitizeFilename(cmd)))
 		},
 	}
 	ft := template.Must(template.New("for dir").Funcs(funcMap).Parse("{{ CreateName .dir .cmdName }}{{ .suffix }}"))
