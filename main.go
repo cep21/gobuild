@@ -10,8 +10,9 @@ import (
 
 	"io"
 
-	"github.com/cep21/gobuild/internal/golang.org/x/net/context"
 	"path/filepath"
+
+	"github.com/cep21/gobuild/internal/golang.org/x/net/context"
 )
 
 type gobuildMain struct {
