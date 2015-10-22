@@ -52,7 +52,7 @@ func multiErr(errs []error) error {
 		return nil
 	}
 	return &multiErrStr{
-		errs: errs,
+		errs: retErrs,
 	}
 }
 
@@ -114,16 +114,17 @@ func (d *fileStreamer) GetCmdOutput(cmdName string) (io.WriteCloser, error) {
 	return f, nil
 }
 
-func inDirStreamer(dir string) *fileStreamer {
+func inDirStreamer(dir string, suffix string) *fileStreamer {
 	defaultVars := map[string]interface{}{
 		"dir": dir,
+		"suffix": suffix,
 	}
 	funcMap := template.FuncMap{
 		"CreateName": func(dir string, cmd string) string {
-			return filepath.Join(dir, sanitizeFilename(cmd))
+			return filepath.Clean(filepath.Join(dir, "coverage_" + sanitizeFilename(cmd)))
 		},
 	}
-	ft := template.Must(template.New("for dir").Funcs(funcMap).Parse("{{ CreateName .dir .cmdName }}"))
+	ft := template.Must(template.New("for dir").Funcs(funcMap).Parse("{{ CreateName .dir .cmdName }}{{ .suffix }}"))
 	return &fileStreamer{
 		defaultVars:      defaultVars,
 		filenameTemplate: ft,

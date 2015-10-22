@@ -33,12 +33,12 @@ func (c *cmdBuild) Run(ctx context.Context) error {
 func (c *cmdBuild) buildDir(ctx context.Context, dir string) error {
 	stdout, err := c.cmdStdout.GetCmdOutput(dir)
 	if err != nil {
-		return wraperr(err, "cannot create stdout output")
+		return wraperr(err, "cannot create stdout output for %s", dir)
 	}
 
 	stderr, err := c.cmdStderr.GetCmdOutput(dir)
 	if err != nil {
-		return wraperr(err, "cannot create stderr output")
+		return wraperr(err, "cannot create stderr output for %s", dir)
 	}
 
 	for _, s := range []io.Closer{stdout, stderr} {
@@ -62,7 +62,7 @@ func (c *cmdBuild) buildDir(ctx context.Context, dir string) error {
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
-		return wraperr(err, "unable to finish running build")
+		return wraperr(err, "unable to finish running build for %s", dir)
 	}
 	return nil
 }

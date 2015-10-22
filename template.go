@@ -79,7 +79,7 @@ func (b *buildTemplate) BuildFlags() []string {
 }
 
 func (b *buildTemplate) TestCoverageArgs() []string {
-	return []string{"-covermode", "atomic", "-race", "-timeout", "10s", "-cpu", "1,4", "-parallel", "8"}
+	return []string{"-covermode", "atomic", "-race", "-timeout", "10s", "-cpu", "4", "-parallel", "8"}
 }
 
 func (b *buildTemplate) MetalintIgnoreLines() []string {

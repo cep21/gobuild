@@ -46,7 +46,7 @@ func (g *goCoverageCheck) runForDir(dir string) error {
 	if err != nil {
 		return wraperr(err, "unable to load cache for %s", dir)
 	}
-	coverArgs := append([]string{"test"}, template.TestCoverageArgs()...)
+	coverArgs := append([]string{"test", "-v"}, template.TestCoverageArgs()...)
 	cmdName := "go"
 	coverprofile, err := g.coverProfileOutTo.GetCmdOutput(dir)
 	if err != nil {
@@ -81,7 +81,7 @@ func (g *goCoverageCheck) runForDir(dir string) error {
 	g.verboseLog.Printf("Running [cmd=%s args=%s dir=%s]", cmd.Path, strings.Join(cmd.Args, " "), cmd.Dir)
 	err = cmd.Run()
 	if err != nil {
-		return wraperr(err, "test command failed")
+		return wraperr(err, "test failed for %s", dir)
 	}
 
 	coverage, err := calculateCoverage(coverprofileName)

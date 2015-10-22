@@ -94,12 +94,16 @@ func (g *gobuildMain) lint(ctx context.Context, dirs []string) error {
 }
 
 func (g *gobuildMain) build(ctx context.Context, dirs []string) error {
+	buildableDirs, err := dirsWithFileGob(dirs, "*.go")
+	if err != nil {
+		return wraperr(err, "cannot find *.go files in dirs")
+	}
 	c := cmdBuild{
 		verboseLog: g.verboseLog,
 		errorLog:   g.errLog,
 		cmdStdout:  &myselfOutput{&nopCloseWriter{os.Stdout}},
 		cmdStderr:  &myselfOutput{&nopCloseWriter{os.Stderr}},
-		dirs:       dirs,
+		dirs:       buildableDirs,
 		cache:      &g.tc,
 	}
 	return c.Run(ctx)
@@ -144,7 +148,7 @@ func (g *gobuildMain) test(ctx context.Context, dirs []string) error {
 	c := goCoverageCheck{
 		dirs:               testDirs,
 		cache:              &g.tc,
-		coverProfileOutTo:  inDirStreamer("/tmp/a"),
+		coverProfileOutTo:  inDirStreamer("/tmp/a", ".cover"),
 		testStdoutOutputTo: &myselfOutput{&nopCloseWriter{os.Stdout}},
 		testStderrOutputTo: &myselfOutput{&nopCloseWriter{os.Stderr}},
 		requiredCoverage:   1,
@@ -152,6 +156,14 @@ func (g *gobuildMain) test(ctx context.Context, dirs []string) error {
 		errLog:             g.errLog,
 	}
 	return c.Run(ctx)
+}
+
+func (g *gobuildMain) check(ctx context.Context, dirs []string) error {
+	buildErr := g.build(ctx, dirs)
+	lintErr := g.lint(ctx, dirs)
+	duplErr := g.dupl(ctx, dirs)
+	testErr := g.test(ctx, dirs)
+	return multiErr([]error{buildErr, lintErr, duplErr, testErr})
 }
 
 func (g *gobuildMain) list(ctx context.Context, dirs []string) error {
@@ -181,6 +193,7 @@ func (g *gobuildMain) main() error {
 		"test":    g.test,
 		"dupl":    g.dupl,
 		"install": g.install,
+		"check":   g.check,
 	}
 
 	cmd, args := g.getArgs()
