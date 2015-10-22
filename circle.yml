@@ -23,14 +23,13 @@ test:
     - rsync -azC --delete ./ $SRC_PATH
     - cd $SRC_PATH && go test .
     - cd $SRC_PATH && go build . && ./gobuild -verbose
-  post:
-    - go get github.com/mitchellh/gox
-    - cd $SRC_PATH && gox -output "$CIRCLE_ARTIFACTS/dist/gobuild_{{.OS}}_{{.Arch}}"
 
 deployment:
   release:
     tag: /v[0-9]+(\.[0-9]+)*/
     owner: cep21
     commands:
+      - go get github.com/mitchellh/gox
+      - cd $SRC_PATH && gox -output "$CIRCLE_ARTIFACTS/dist/gobuild_{{.OS}}_{{.Arch}}"
       - go get github.com/tcnksm/ghr
       - ghr -t $GITHUB_TOKEN -u $CIRCLE_PROJECT_USERNAME -r $CIRCLE_PROJECT_REPONAME --replace `git describe --tags` $CIRCLE_ARTIFACTS/dist/
