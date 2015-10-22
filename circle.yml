@@ -15,10 +15,7 @@ dependencies:
     - /usr/local/gover
   override:
     - ./install_all_go_versions.sh
-    - rm -rf $HOME/.go_workspace
-    - rm -rf $HOME/.gradle
-    - rm -rf $HOME/.ivy2
-    - rm -rf $HOME/.m2
+    - rm -rf $HOME/.go_workspace $HOME/.gradle $HOME/.ivy2 $HOME/.m2
 
 test:
   override:
