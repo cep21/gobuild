@@ -216,7 +216,7 @@ func (p *pathExpansion) singlePath(path string) string {
 
 func (p *pathExpansion) matchDir(storeInto map[string]struct{}) filepath.WalkFunc {
 	return func(path string, info os.FileInfo, err error) error {
-		p.log.Printf("At %s\n", path)
+		p.log.Printf("Path expansion at %s\n", path)
 		if err != nil {
 			return err
 		}
