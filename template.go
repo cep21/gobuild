@@ -122,12 +122,14 @@ func init() {
 }
 
 type templateCache struct {
-	cache map[string]*buildTemplate
+	cache      map[string]*buildTemplate
+	verboseLog logger
 }
 
 const buildFileName = "gobuild.toml"
 
 func (t *templateCache) loadInDir(dir string) (*buildTemplate, error) {
+	t.verboseLog.Printf("Loading template for %s", dir)
 	if dir == "" {
 		return &defaultLoadedTemplate, nil
 	}
@@ -140,11 +142,15 @@ func (t *templateCache) loadInDir(dir string) (*buildTemplate, error) {
 	}
 	fullBuildFilePath := filepath.Join(dir, buildFileName)
 	var currentDirTemplate *buildTemplate
+
+	t.verboseLog.Printf("Fresh template %s checking file %s", dir, fullBuildFilePath)
+
 	if l, err := os.Stat(fullBuildFilePath); err == nil && !l.IsDir() {
-		currentDirTemplate := &buildTemplate{}
+		currentDirTemplate = &buildTemplate{}
 		if _, err := toml.DecodeFile(fullBuildFilePath, currentDirTemplate); err != nil {
 			return nil, wraperr(err, "invalid toml file at %s", fullBuildFilePath)
 		}
+		t.verboseLog.Printf("Loaded template for %s is %v", fullBuildFilePath, currentDirTemplate)
 	} else if !os.IsNotExist(err) {
 		return nil, wraperr(err, "cannot stat buildfile %s", fullBuildFilePath)
 	}

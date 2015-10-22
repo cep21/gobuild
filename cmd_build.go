@@ -42,9 +42,9 @@ func (c *cmdBuild) buildDir(ctx context.Context, dir string) error {
 	}
 
 	for _, s := range []io.Closer{stdout, stderr} {
-		defer func() {
+		defer func(s io.Closer) {
 			logIfErr(s.Close(), c.errorLog, "could not flush build output file")
-		}()
+		}(s)
 	}
 
 	c.verboseLog.Printf("Building directory %s", dir)

@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 
+	"errors"
+
 	"golang.org/x/net/context"
 )
 
@@ -19,6 +21,8 @@ type gometalinterCmd struct {
 	dirsToLint []string
 	cache      *templateCache
 }
+
+var errLintFailures = errors.New("gometalinter failures found")
 
 func (l *gometalinterCmd) Run(ctx context.Context) error {
 	allFailures := make([]string, 0, len(l.dirsToLint))
@@ -33,7 +37,7 @@ func (l *gometalinterCmd) Run(ctx context.Context) error {
 		}
 		dataParts := make([]string, 0, len(failedLines))
 		for _, line := range failedLines {
-			errStr := fmt.Sprintf("%s:%s", dir, line)
+			errStr := fmt.Sprintf("%s/%s", dir, line)
 			dataParts = append(dataParts, errStr)
 		}
 		allFailures = append(allFailures, dataParts...)
@@ -41,7 +45,10 @@ func (l *gometalinterCmd) Run(ctx context.Context) error {
 		if err != nil {
 			return wraperr(err, "unable to output gometalinter stderr/out to file")
 		}
-		data := strings.Join(dataParts, "\n")
+		data := strings.Join(dataParts, "\n") + "\n"
+		if len(dataParts) == 0 {
+			data = ""
+		}
 		l.verboseLog.Printf("Output metalint results to %s", dst)
 		if _, err := io.WriteString(dst, data); err != nil {
 			return wraperr(err, "unable to output gometalinter stderr/out to file")
@@ -53,7 +60,7 @@ func (l *gometalinterCmd) Run(ctx context.Context) error {
 	if len(allFailures) == 0 {
 		return nil
 	}
-	return fmt.Errorf("%s", strings.Join(allFailures, "\n"))
+	return errLintFailures
 }
 
 var validFilenames = regexp.MustCompile("[^A-Za-z0-9\\._-]+")
@@ -63,18 +70,6 @@ func sanitizeFilename(s string) string {
 	s = validFilenames.ReplaceAllString(s, "_")
 
 	return s
-}
-
-type lintErr struct {
-	errLines []string
-}
-
-func (l *lintErr) Error() string {
-	p := l.errLines
-	if len(p) > 10 {
-		p = append(p[0:3], "...")
-	}
-	return strings.Join(p, "|")
 }
 
 func parseRegexes(reg []string) ([]*regexp.Regexp, error) {
@@ -102,7 +97,7 @@ func (l *gometalinterCmd) lintInDir(dir string, tmpl *buildTemplate) ([]string, 
 	cmd := exec.Command("gometalinter")
 	cmd.Dir = dir
 	cmd.Args = tmpl.MetalintArgs()
-	l.verboseLog.Printf("Running command %s", cmd)
+	l.verboseLog.Printf("Running command %v", cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		l.verboseLog.Printf("Error running metalinter.  We usually ignore errors anyways: %s %s", err.Error(), string(out))

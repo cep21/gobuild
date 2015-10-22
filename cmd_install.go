@@ -14,16 +14,19 @@ type installCmd struct {
 	errLog         logger
 	tmpl           *buildTemplate
 
-	stdoutOutput cmdOutputStreamer
-	stderrOutput cmdOutputStreamer
+	stdoutOutput io.Writer
+	stderrOutput io.Writer
 }
 
 func (i *installCmd) Run(ctx context.Context) error {
 	toGoget := []string{}
 	for binname, goget := range i.tmpl.Install.Goget {
-		_, err := exec.LookPath(binname)
+		execPath, err := exec.LookPath(binname)
 		if err != nil || i.forceReinstall {
 			toGoget = append(toGoget, goget)
+			i.verboseLog.Printf("Need to install %s => %s", binname, goget)
+		} else {
+			i.verboseLog.Printf("Found %s at %s", binname, execPath)
 		}
 	}
 
@@ -34,23 +37,9 @@ func (i *installCmd) Run(ctx context.Context) error {
 	i.verboseLog.Printf("Installing commands %s", strings.Join(toGoget, " "))
 	cmd := exec.Command("go", "get", "-u", "-f")
 	cmd.Args = append(cmd.Args, toGoget...)
-	stdout, err := i.stdoutOutput.GetCmdOutput("")
-	if err != nil {
-		return wraperr(err, "cannot get stdout file")
-	}
-	stderr, err := i.stderrOutput.GetCmdOutput("")
-	if err != nil {
-		return wraperr(err, "cannot get stderr file")
-	}
 
-	for _, s := range []io.Closer{stdout, stderr} {
-		defer func() {
-			logIfErr(s.Close(), i.errLog, "could not flush install output file")
-		}()
-	}
-
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
+	cmd.Stdout = i.stdoutOutput
+	cmd.Stderr = i.stderrOutput
 	if err := cmd.Run(); err != nil {
 		return wraperr(err, "Unable to run go get")
 	}

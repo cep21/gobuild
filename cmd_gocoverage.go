@@ -8,6 +8,7 @@ import (
 
 	"golang.org/x/net/context"
 	"golang.org/x/tools/cover"
+"strings"
 )
 
 type goCoverageCheck struct {
@@ -44,25 +45,24 @@ func (g *goCoverageCheck) runForDir(dir string) error {
 	if err != nil {
 		return wraperr(err, "unable to load cache for %s", dir)
 	}
-	coverArgs := template.TestCoverageArgs()
+	coverArgs := append([]string{"test"}, template.TestCoverageArgs()...)
 	cmdName := "go"
-	bestGuessFilename := sanitizeFilename(dir)
-	coverprofile, err := g.coverProfileOutTo.GetCmdOutput(bestGuessFilename)
+	coverprofile, err := g.coverProfileOutTo.GetCmdOutput(dir)
 	if err != nil {
-		return wraperr(err, "coverprofile generation failed for %s", bestGuessFilename)
+		return wraperr(err, "coverprofile generation failed for %s", dir)
 	}
-	stdout, err := g.testStdoutOutputTo.GetCmdOutput(bestGuessFilename)
+	stdout, err := g.testStdoutOutputTo.GetCmdOutput(dir)
 	if err != nil {
-		return wraperr(err, "stdout generation failed for %s", bestGuessFilename)
+		return wraperr(err, "stdout generation failed for %s", dir)
 	}
-	stderr, err := g.testStderrOutputTo.GetCmdOutput(bestGuessFilename)
+	stderr, err := g.testStderrOutputTo.GetCmdOutput(dir)
 	if err != nil {
-		return wraperr(err, "stderr generation failed for %s", bestGuessFilename)
+		return wraperr(err, "stderr generation failed for %s", dir)
 	}
 	for _, s := range []io.Closer{stdout, stderr} {
-		defer func() {
+		defer func(s io.Closer) {
 			logIfErr(s.Close(), g.errLog, "could not flush test output file")
-		}()
+		}(s)
 	}
 
 	// Note: this panics if the coverprofile doesn't return File types
@@ -77,8 +77,9 @@ func (g *goCoverageCheck) runForDir(dir string) error {
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.Dir = dir
-	runErr := cmd.Run()
-	if runErr != nil {
+	g.verboseLog.Printf("Running [cmd=%s args=%s dir=%s]", cmd.Path, strings.Join(cmd.Args, " "), cmd.Dir)
+	err = cmd.Run()
+	if err != nil {
 		return wraperr(err, "test command failed")
 	}
 

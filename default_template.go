@@ -13,4 +13,5 @@ var defaultTemplate = `
     gocyclo = "github.com/fzipp/gocyclo"
     aligncheck = "github.com/opennota/check/cmd/aligncheck"
     varcheck = "github.com/opennota/check/cmd/varcheck"
+    dupl = "github.com/mibk/dupl"
 `

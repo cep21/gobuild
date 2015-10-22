@@ -10,6 +10,7 @@ import (
 	"text/template"
 
 	"golang.org/x/net/context"
+	"path/filepath"
 )
 
 type logger interface {
@@ -108,13 +109,13 @@ func (m myselfOutput) GetCmdOutput(cmdName string) (io.WriteCloser, error) {
 }
 
 type fileStreamer struct {
-	defaultVars      map[string]string
-	filenameTemplate template.Template
+	defaultVars      map[string]interface{}
+	filenameTemplate *template.Template
 }
 
-func mergeMap(left, right map[string]string) map[string]string {
-	ret := make(map[string]string, len(left)+len(right))
-	for _, m := range []map[string]string{left, right} {
+func mergeMap(left, right map[string]interface{}) map[string]interface{} {
+	ret := make(map[string]interface{}, len(left)+len(right))
+	for _, m := range []map[string]interface{}{left, right} {
 		for k, v := range m {
 			ret[k] = v
 		}
@@ -125,10 +126,10 @@ func mergeMap(left, right map[string]string) map[string]string {
 func (d *fileStreamer) GetCmdOutput(cmdName string) (io.WriteCloser, error) {
 	fileName := bytes.Buffer{}
 
-	if err := d.filenameTemplate.Execute(&fileName, mergeMap(d.defaultVars, map[string]string{
+	if err := d.filenameTemplate.Execute(&fileName, mergeMap(d.defaultVars, map[string]interface{}{
 		"cmdName": cmdName,
 	})); err != nil {
-		return nil, wraperr(err, "unable to generate template for cmd %s stream %s", cmdName)
+		return nil, wraperr(err, "unable to generate template for cmd %s", cmdName)
 	}
 
 	f, err := os.Create(fileName.String())
@@ -136,6 +137,22 @@ func (d *fileStreamer) GetCmdOutput(cmdName string) (io.WriteCloser, error) {
 		return nil, wraperr(err, "cannot create file %s", fileName.String())
 	}
 	return f, nil
+}
+
+func inDirStreamer(dir string) *fileStreamer {
+	defaultVars := map[string]interface{} {
+		"dir": dir,
+	}
+	funcMap := template.FuncMap{
+		"CreateName": func(dir string, cmd string) string {
+			return filepath.Join(dir, sanitizeFilename(cmd))
+		},
+	}
+	ft := template.Must(template.New("for dir").Funcs(funcMap).Parse("{{ CreateName .dir .cmdName }}"))
+	return &fileStreamer {
+		defaultVars: defaultVars,
+		filenameTemplate: ft,
+	}
 }
 
 type cmdOutputStreamer interface {
