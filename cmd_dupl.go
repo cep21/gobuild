@@ -1,31 +1,34 @@
 package main
+
 import (
-"golang.org/x/net/context"
-"io"
-	"strings"
 	"bytes"
+	"io"
 	"os/exec"
+	"strings"
+
+	"golang.org/x/net/context"
 )
 
 type duplCmd struct {
 	verboseLog logger
-	out io.Writer
-	htmlOut io.Writer
+	htmlOut    io.Writer
 	consoleOut io.Writer
-	tmpl *buildTemplate
-	dirs []string
+	tmpl       *buildTemplate
+	dirs       []string
 }
 
 func (d *duplCmd) Run(ctx context.Context) error {
 	d.verboseLog.Printf("Running dupl -plumbing command")
 	regDuplOut, err := d.runDupl(ctx, []string{"-plumbing"})
 	if err != nil {
+		d.verboseLog.Printf("Regular dupl output: %s", string(regDuplOut))
 		return wraperr(err, "unable to correctly run regular dupl")
 	}
 
 	d.verboseLog.Printf("Running dupl -html command")
 	htmlDuplOut, err := d.runDupl(ctx, []string{"-html"})
 	if err != nil {
+		d.verboseLog.Printf("html dupl output: %s", string(htmlDuplOut))
 		return wraperr(err, "unable to correctly run html dupl")
 	}
 	n, err := d.consoleOut.Write(regDuplOut)

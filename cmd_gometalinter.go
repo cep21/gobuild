@@ -1,30 +1,27 @@
 package main
+
 import (
-	"os/exec"
-	"strings"
 	"bufio"
 	"bytes"
-	"regexp"
 	"fmt"
-	"io/ioutil"
-	"path/filepath"
 	"io"
-	"os"
-"golang.org/x/net/context"
+	"os/exec"
+	"regexp"
+	"strings"
+
+	"golang.org/x/net/context"
 )
 
 type gometalinterCmd struct {
 	verboseLog logger
-	infoLog logger
-	errLog logger
-	outputDestination cmdOutputStreamer
-	out io.Writer
+	errLog     logger
+	metaOutput cmdOutputStreamer
 	dirsToLint []string
-	cache *templateCache
+	cache      *templateCache
 }
 
 func (l *gometalinterCmd) Run(ctx context.Context) error {
-	allErrs := []string{}
+	allFailures := make([]string, 0, len(l.dirsToLint))
 	for _, dir := range l.dirsToLint {
 		tmpl, err := l.cache.loadInDir(dir)
 		if err != nil {
@@ -34,26 +31,26 @@ func (l *gometalinterCmd) Run(ctx context.Context) error {
 		if err != nil {
 			return wraperr(err, "unable to parse gometalinter lines")
 		}
+		dataParts := make([]string, 0, len(failedLines))
 		for _, line := range failedLines {
 			errStr := fmt.Sprintf("%s:%s", dir, line)
-			if _, err := io.WriteString(l.out, errStr); err != nil {
-				return wraperr(err, "unable to output gometalinter stderr/out to file")
-			}
+			dataParts = append(dataParts, errStr)
 		}
-		dst, err := l.outputDestination.GetCmdOutput(dir)
+		allFailures = append(allFailures, dataParts...)
+		dst, err := l.metaOutput.GetCmdOutput(dir)
 		if err != nil {
 			return wraperr(err, "unable to output gometalinter stderr/out to file")
 		}
-		data := strings.Join(failedLines, "\n")
-		l.verboseLog.Printf("Output metalint results to %s", dst.Stdout())
-		if _, err := io.WriteString(dst.Stdout(), data); err != nil {
+		data := strings.Join(dataParts, "\n")
+		l.verboseLog.Printf("Output metalint results to %s", dst)
+		if _, err := io.WriteString(dst, data); err != nil {
 			return wraperr(err, "unable to output gometalinter stderr/out to file")
 		}
 		if err := dst.Close(); err != nil {
 			l.errLog.Printf("Unable to close output destination: %s", err.Error())
 		}
 	}
-	return multiErr(allErrs)
+	return fmt.Errorf("%s", strings.Join(allFailures, "\n"))
 }
 
 var validFilenames = regexp.MustCompile("[^A-Za-z0-9\\._-]+")
@@ -77,19 +74,19 @@ func (l *lintErr) Error() string {
 	return strings.Join(p, "|")
 }
 
-func parseRegexes(reg []string) ([]regexp.Regexp, error) {
-	ret := make([]regexp.Regexp, 0, len(reg))
+func parseRegexes(reg []string) ([]*regexp.Regexp, error) {
+	ret := make([]*regexp.Regexp, 0, len(reg))
 	for _, g := range reg {
 		r, err := regexp.Compile(g)
 		if err != nil {
-			return wraperr(err, "regex won't compile: %s", g)
+			return nil, wraperr(err, "regex won't compile: %s", g)
 		}
 		ret = append(ret, r)
 	}
-	return ret
+	return ret, nil
 }
 
-func matchesAny(toMatch []byte, reg []regexp.Regexp) bool {
+func matchesAny(toMatch []byte, reg []*regexp.Regexp) bool {
 	for _, r := range reg {
 		if r.Match(toMatch) {
 			return true
@@ -106,6 +103,7 @@ func (l *gometalinterCmd) lintInDir(dir string, tmpl *buildTemplate) ([]string, 
 	if err != nil {
 		l.verboseLog.Printf("Error running metalinter.  We usually ignore errors anyways: %s %s", err.Error(), string(out))
 	}
+	l.verboseLog.Printf("Output of metalinter on %s: %s", dir, string(out))
 	outToIgnore := tmpl.MetalintIgnoreLines()
 	regs, err := parseRegexes(outToIgnore)
 	if err != nil {

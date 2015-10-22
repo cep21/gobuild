@@ -1,16 +1,18 @@
 package main
+
 import (
-"golang.org/x/net/context"
-"strings"
 	"os/exec"
+	"strings"
+
+	"golang.org/x/net/context"
 )
 
 type fixCmd struct {
-	dirs []string
+	dirs      []string
 	chunkSize int
 
 	verboseOut logger
-	errOut logger
+	errOut     logger
 }
 
 func (f *fixCmd) Run(ctx context.Context) error {
@@ -31,7 +33,7 @@ func (f *fixCmd) Run(ctx context.Context) error {
 func (f *fixCmd) fmtCmd(cmdName string, args []string, goFiles []string) error {
 	for _, chunk := range chunkStrings(goFiles, f.chunkSize) {
 		f.verboseOut.Printf("running %s on %s", cmdName, strings.Join(chunk, ", "))
-		cmd := exec.Command(cmdName, append(args, chunk)...)
+		cmd := exec.Command(cmdName, append(args, chunk...)...)
 		bout, err := cmd.CombinedOutput()
 		if err != nil {
 			return wraperr(err, "unable to run %s correctly", cmdName)
@@ -45,7 +47,7 @@ func (f *fixCmd) fmtCmd(cmdName string, args []string, goFiles []string) error {
 }
 
 func chunkStrings(strs []string, size int) [][]string {
-	ret := make([][]string, 0, len(strs)/size + 1)
+	ret := make([][]string, 0, len(strs)/size+1)
 	cur := make([]string, 0, size)
 	for _, str := range strs {
 		cur = append(cur, str)

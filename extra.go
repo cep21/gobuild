@@ -1,14 +1,15 @@
 package main
+
 import (
+	"bytes"
 	"fmt"
-	"strings"
-	"os/exec"
-"golang.org/x/net/context"
 	"io"
 	"os"
-	"path/filepath"
+	"os/exec"
+	"strings"
 	"text/template"
-	"bytes"
+
+	"golang.org/x/net/context"
 )
 
 type logger interface {
@@ -20,17 +21,17 @@ type wrappedError struct {
 	msg string
 }
 
-type multiErr struct {
+type multiErrStr struct {
 	errs []error
 }
 
-func logIfErr(err error, l logger, msg string, args ... interface{}) {
+func logIfErr(err error, l logger, msg string, args ...interface{}) {
 	if err != nil {
-		l.Printf(msg, err.Error() + "|" + fmt.Sprintf(msg, args...))
+		l.Printf(msg, err.Error()+"|"+fmt.Sprintf(msg, args...))
 	}
 }
 
-func (e *multiErr) Error() string {
+func (e *multiErrStr) Error() string {
 	r := make([]string, 0, len(e.errs))
 	for _, err := range e.errs {
 		r = append(r, err.Error())
@@ -51,13 +52,13 @@ func multiErr(errs []error) error {
 	if len(retErrs) == 0 {
 		return nil
 	}
-	return &multiErr{
+	return &multiErrStr{
 		errs: errs,
 	}
 }
 
 func wraperr(err error, msg string, args ...interface{}) *wrappedError {
-	return wrappedError{
+	return &wrappedError{
 		err: err,
 		msg: fmt.Sprintf(msg, args...),
 	}
@@ -81,7 +82,7 @@ func runInContext(ctx context.Context, cmd *exec.Cmd, verboseLog logger, warning
 	}()
 	select {
 	case <-ctx.Done():
-		logIfError(warningLog, "Error killing process", cmd.Process.Kill())
+		logIfErr(cmd.Process.Kill(), warningLog, "Error killing process")
 		// The above kill should cause cmd.Wait() to finish
 		<-doneWaiting
 		return ctx.Err()
@@ -90,93 +91,60 @@ func runInContext(ctx context.Context, cmd *exec.Cmd, verboseLog logger, warning
 	}
 }
 
-type cmdOutput interface {
-	Stdout() io.Writer
-	Stderr() io.Writer
-	io.Closer
+type nopCloseWriter struct {
+	io.Writer
 }
 
-type myselfOutput struct{}
-
-func (m myselfOutput) GetCmdOutput(cmdName string) cmdOutput {
-	return m
-}
-
-func (m myselfOutput) Stdout() io.Writer {
-	return os.Stdout
-}
-
-func (m myselfOutput) Stderr() io.Writer {
-	return os.Stderr
-}
-
-func (m myselfOutput) Close() error {
+func (n *nopCloseWriter) Close() error {
 	return nil
 }
 
-type streamOutput struct {
-	stdout io.WriteCloser
-	stderr io.WriteCloser
+type myselfOutput struct {
+	w io.WriteCloser
 }
 
-func (m *streamOutput) Stdout() io.Writer {
-	return m.stdout
+func (m myselfOutput) GetCmdOutput(cmdName string) (io.WriteCloser, error) {
+	return m.w, nil
 }
 
-func (m *streamOutput) Stderr() io.Writer {
-	return m.stderr
+type fileStreamer struct {
+	defaultVars      map[string]string
+	filenameTemplate template.Template
 }
 
-func (m *streamOutput) Close() error {
-	errs := make([]error, 0, 2)
-	errs = append(errs, m.stdout.Close())
-	if m.stderr != m.stdout {
-		errs = append(errs, m.stderr.Close())
-	}
-	// Don't let people access it again after closing
-	m.stdout = nil
-	m.stderr = nil
-	return multiErr(errs)
-}
-
-type filenameTemplate struct {
-	rootDir string
-	filenameCreator template.Template
-}
-
-func (d *filenameTemplate) GetCmdOutput(cmdName string) (cmdOutput, error) {
-	fileNames := []bytes.Buffer{{bytes.Buffer{}, bytes.Buffer{}}}
-
-	for idx, stream := range []string{"stdout", "stderr"} {
-		if err := d.filenameCreator.Execute(&fileNames[idx], map[string]string{
-			"stream": stream,
-			"cmdName": cmdName,
-			"root": d.rootDir,
-		}); err != nil {
-			return wraperr(err, "unable to generate template for cmd %s stream %s", cmdName, stream)
+func mergeMap(left, right map[string]string) map[string]string {
+	ret := make(map[string]string, len(left)+len(right))
+	for _, m := range []map[string]string{left, right} {
+		for k, v := range m {
+			ret[k] = v
 		}
 	}
-	stdoutFile, err := os.Create(fileNames[0])
+	return ret
+}
+
+func (d *fileStreamer) GetCmdOutput(cmdName string) (io.WriteCloser, error) {
+	fileName := bytes.Buffer{}
+
+	if err := d.filenameTemplate.Execute(&fileName, mergeMap(d.defaultVars, map[string]string{
+		"cmdName": cmdName,
+	})); err != nil {
+		return nil, wraperr(err, "unable to generate template for cmd %s stream %s", cmdName)
+	}
+
+	f, err := os.Create(fileName.String())
 	if err != nil {
-		return nil, wraperr(err, "cannot create file %s", fileNames[0])
+		return nil, wraperr(err, "cannot create file %s", fileName.String())
 	}
-	if fileNames[0] == fileNames[1] {
-		return &streamOutput{
-			stdout: stdoutFile,
-			stderr: stdoutFile,
-		}, nil
-	}
-	stderrFile, err := os.Create(fileNames[1])
-	if err != nil {
-		return nil, wraperr(err, "cannot create file %s", fileNames[1])
-	}
-	return &streamOutput{
-		stdout: stdoutFile,
-		stderr: stderrFile,
-	}, nil
+	return f, nil
 }
 
 type cmdOutputStreamer interface {
-	GetCmdOutput(cmdName string) (cmdOutput, error)
+	GetCmdOutput(cmdName string) (io.WriteCloser, error)
 }
 
+func panicIfNotNil(err error, msg string, args ...interface{}) {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, msg+"\n", args...)
+		panic(err)
+	}
+}

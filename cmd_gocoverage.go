@@ -1,20 +1,24 @@
 package main
+
 import (
-	"golang.org/x/net/context"
-	"os/exec"
-	"path/filepath"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
+
+	"golang.org/x/net/context"
 	"golang.org/x/tools/cover"
 )
 
 type goCoverageCheck struct {
-	dirs []string
-	cache *templateCache
-	storageDir string
-	requiredCoverage float64
-	verboseLog logger
-	errLog logger
+	dirs               []string
+	cache              *templateCache
+	coverProfileOutTo  cmdOutputStreamer
+	testStdoutOutputTo cmdOutputStreamer
+	testStderrOutputTo cmdOutputStreamer
+	requiredCoverage   float64
+	verboseLog         logger
+	errLog             logger
 }
 
 func (g *goCoverageCheck) Run(ctx context.Context) error {
@@ -29,6 +33,12 @@ func (g *goCoverageCheck) Run(ctx context.Context) error {
 	return multiErr(allErrs)
 }
 
+type hasName interface {
+	Name() string
+}
+
+var _ hasName = &os.File{}
+
 func (g *goCoverageCheck) runForDir(dir string) error {
 	template, err := g.cache.loadInDir(dir)
 	if err != nil {
@@ -37,38 +47,46 @@ func (g *goCoverageCheck) runForDir(dir string) error {
 	coverArgs := template.TestCoverageArgs()
 	cmdName := "go"
 	bestGuessFilename := sanitizeFilename(dir)
-	coverprofile := filepath.Join(g.storageDir, fmt.Sprintf("%s.code_coverage.txt", bestGuessFilename))
-	stderrFilename := filepath.Join(g.storageDir, fmt.Sprintf("%s.stderr.txt", bestGuessFilename))
-	stdoutFilename := filepath.Join(g.storageDir, fmt.Sprintf("%s.stdout.txt", bestGuessFilename))
-
-	openFiles := make([]os.File, 2)
-	for i, fname := range []string{stdoutFilename, stderrFilename} {
-		stream, err := os.Create(fname)
-		if err != nil {
-			return wraperr(err, "could not open %d filename %s", i, stderrFilename)
-		}
-		openFiles[i] = stream
+	coverprofile, err := g.coverProfileOutTo.GetCmdOutput(bestGuessFilename)
+	if err != nil {
+		return wraperr(err, "coverprofile generation failed for %s", bestGuessFilename)
+	}
+	stdout, err := g.testStdoutOutputTo.GetCmdOutput(bestGuessFilename)
+	if err != nil {
+		return wraperr(err, "stdout generation failed for %s", bestGuessFilename)
+	}
+	stderr, err := g.testStderrOutputTo.GetCmdOutput(bestGuessFilename)
+	if err != nil {
+		return wraperr(err, "stderr generation failed for %s", bestGuessFilename)
+	}
+	for _, s := range []io.Closer{stdout, stderr} {
 		defer func() {
-			logIfErr(stream.Close(), "cannot close %d file %s", i, stderrFilename)
+			logIfErr(s.Close(), g.errLog, "could not flush test output file")
 		}()
 	}
 
-	coverArgs = append(coverArgs, "-coverprofile", coverprofile)
+	// Note: this panics if the coverprofile doesn't return File types
+	coverprofileName := coverprofile.(hasName).Name()
+	coverArgs = append(coverArgs, "-coverprofile", coverprofileName, ".")
+
+	if err := coverprofile.Close(); err != nil {
+		return wraperr(err, "unable to generate coverprofile file")
+	}
 
 	cmd := exec.Command(cmdName, coverArgs...)
-	cmd.Stdout = openFiles[0]
-	cmd.Stderr = openFiles[0]
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	cmd.Dir = dir
 	runErr := cmd.Run()
 	if runErr != nil {
 		return wraperr(err, "test command failed")
 	}
 
-	coverage, err := calculateCoverage(coverprofile)
+	coverage, err := calculateCoverage(coverprofileName)
 	if err != nil {
 		return wraperr(err, "unable to calculate coverage")
 	}
-	if coverage + .001 < g.requiredCoverage {
+	if coverage+.001 < g.requiredCoverage {
 		return fmt.Errorf("code coverage %f < required %f for %s", coverage, g.requiredCoverage, dir)
 	}
 	return nil
