@@ -19,8 +19,32 @@ type install struct {
 	Goget map[string]string `toml:"goget"`
 }
 
+func (i *install) MergeFrom(from *install) {
+	if from == nil {
+		return
+	}
+	if len(from.Goget) > 0 && i.Goget == nil {
+		i.Goget = make(map[string]string, len(from.Goget))
+	}
+	for k, v := range from.Goget {
+		i.Goget[k] = v
+	}
+}
+
 type metalinter struct {
 	Enabled map[string]bool `toml:"enabled"`
+}
+
+func (i *metalinter) MergeFrom(from *metalinter) {
+	if from == nil {
+		return
+	}
+	if len(from.Enabled) > 0 && i.Enabled == nil {
+		i.Enabled = make(map[string]bool, len(from.Enabled))
+	}
+	for k, v := range from.Enabled {
+		i.Enabled[k] = v
+	}
 }
 
 var defaultMetalinterArgs = []string{"-t", "--disable-all"}
@@ -34,6 +58,20 @@ func (b *buildTemplate) MetalintArgs() []string {
 		}
 	}
 	return ret
+}
+
+func (b *buildTemplate) MergeFrom(from *buildTemplate) {
+	if from == nil {
+		return
+	}
+	b.Install.MergeFrom(&from.Install)
+	b.Metalinter.MergeFrom(&from.Metalinter)
+	if len(from.Vars) > 0 && b.Vars == nil {
+		b.Vars = make(map[string]interface{}, len(from.Vars))
+	}
+	for k, v := range from.Vars {
+		b.Vars[k] = v
+	}
 }
 
 func (b *buildTemplate) BuildFlags() []string {
@@ -53,15 +91,27 @@ func (b *buildTemplate) DuplArgs() []string {
 }
 
 func (b *buildTemplate) IgnoreDirs() []string {
-	ignores, exists := b.Vars["IgnoreDirs"]
+	return b.varStrArray("ignoreDirs")
+}
+
+func (b *buildTemplate) StopLoadingParent() []string {
+	return b.varStrArray("stopLoadingParent")
+}
+
+func (b *buildTemplate) varStrArray(name string) []string {
+	ignores, exists := b.Vars[name]
 	if !exists {
 		return []string{}
 	}
-	ignoresArr, ok := ignores.([]string)
+	ignoresArr, ok := ignores.([]interface{})
 	if !ok {
 		return []string{}
 	}
-	return ignoresArr
+	ret := make([]string, 0, len(ignoresArr))
+	for _, a := range ignoresArr {
+		ret = append(ret, a.(string))
+	}
+	return ret
 }
 
 var defaultLoadedTemplate buildTemplate
@@ -75,11 +125,58 @@ type templateCache struct {
 	cache map[string]*buildTemplate
 }
 
+const buildFileName = "gobuild.toml"
+
 func (t *templateCache) loadInDir(dir string) (*buildTemplate, error) {
 	if dir == "" {
 		return &defaultLoadedTemplate, nil
 	}
-	return &defaultLoadedTemplate, nil
+	dir, err := filepath.Abs(filepath.Clean(dir))
+	if err != nil {
+		return nil, wraperr(err, "cannot get abs path of %s", dir)
+	}
+	if cache, exists := t.cache[dir]; exists {
+		return cache, nil
+	}
+	fullBuildFilePath := filepath.Join(dir, buildFileName)
+	var currentDirTemplate *buildTemplate
+	if l, err := os.Stat(fullBuildFilePath); err == nil && !l.IsDir() {
+		currentDirTemplate := &buildTemplate{}
+		if _, err := toml.DecodeFile(fullBuildFilePath, currentDirTemplate); err != nil {
+			return nil, wraperr(err, "invalid toml file at %s", fullBuildFilePath)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, wraperr(err, "cannot stat buildfile %s", fullBuildFilePath)
+	}
+
+	parentDirTemplate := &defaultLoadedTemplate
+	if t.shouldLoadParent(dir, currentDirTemplate) {
+		if parent := filepath.Dir(dir); parent != dir {
+			if parentDirTemplate, err = t.loadInDir(parent); err != nil {
+				return nil, wraperr(err, "cannot load parent template %s", parent)
+			}
+		}
+	}
+
+	tmp := &buildTemplate{}
+	tmp.MergeFrom(parentDirTemplate)
+	tmp.MergeFrom(currentDirTemplate)
+	t.cache[dir] = tmp
+	return tmp, nil
+}
+
+func (t *templateCache) shouldLoadParent(dir string, currTemplate *buildTemplate) bool {
+	tmp := &buildTemplate{}
+	tmp.MergeFrom(&defaultLoadedTemplate)
+	if currTemplate != nil {
+		tmp.MergeFrom(currTemplate)
+	}
+	for _, stopCheck := range tmp.StopLoadingParent() {
+		if _, err := os.Stat(filepath.Join(dir, stopCheck)); err == nil {
+			return false
+		}
+	}
+	return true
 }
 
 type pathExpansion struct {

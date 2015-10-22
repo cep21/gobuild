@@ -50,6 +50,9 @@ func (l *gometalinterCmd) Run(ctx context.Context) error {
 			l.errLog.Printf("Unable to close output destination: %s", err.Error())
 		}
 	}
+	if len(allFailures) == 0 {
+		return nil
+	}
 	return fmt.Errorf("%s", strings.Join(allFailures, "\n"))
 }
 
@@ -99,6 +102,7 @@ func (l *gometalinterCmd) lintInDir(dir string, tmpl *buildTemplate) ([]string, 
 	cmd := exec.Command("gometalinter")
 	cmd.Dir = dir
 	cmd.Args = tmpl.MetalintArgs()
+	l.verboseLog.Printf("Running command %s", cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		l.verboseLog.Printf("Error running metalinter.  We usually ignore errors anyways: %s %s", err.Error(), string(out))

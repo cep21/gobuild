@@ -20,11 +20,17 @@ type gobuildMain struct {
 		forceAbs  bool
 	}
 
+	tc templateCache
+
 	verboseLog logger
 	errLog     logger
 }
 
-var mainInstance = gobuildMain{}
+var mainInstance = gobuildMain{
+	tc: templateCache{
+		cache: make(map[string]*buildTemplate),
+	},
+}
 
 func init() {
 	flag.BoolVar(&mainInstance.flags.verbose, "verbose", false, "Add verbose log to stderr")
@@ -71,23 +77,39 @@ func (g *gobuildMain) fix(ctx context.Context, dirs []string) error {
 	return c.Run(ctx)
 }
 
+func (g *gobuildMain) lint(ctx context.Context, dirs []string) error {
+	c := gometalinterCmd{
+		verboseLog: g.verboseLog,
+		errLog:     g.errLog,
+		metaOutput: &myselfOutput{&nopCloseWriter{os.Stderr}},
+		dirsToLint: dirs,
+		cache:      &g.tc,
+	}
+	return c.Run(ctx)
+}
+
+func (g *gobuildMain) list(ctx context.Context, dirs []string) error {
+	g.verboseLog.Printf("len(dirs) = %d", len(dirs))
+	fmt.Printf("%s\n", strings.Join(dirs, "\n"))
+	return nil
+}
+
 func (g *gobuildMain) main() error {
 	if err := g.parseFlags(); err != nil {
 		return wraperr(err, "cannot parse flags")
 	}
 	ctx := context.Background()
 
-	tc := templateCache{
-		cache: make(map[string]*buildTemplate),
-	}
 	pe := pathExpansion{
 		forceAbs: g.flags.forceAbs,
 		log:      g.verboseLog,
-		template: &tc,
+		template: &g.tc,
 	}
 
 	cmdMap := map[string]func(context.Context, []string) error{
-		"fix": g.fix,
+		"fix":  g.fix,
+		"lint": g.lint,
+		"list": g.list,
 	}
 
 	cmd, args := g.getArgs()

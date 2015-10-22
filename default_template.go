@@ -2,7 +2,8 @@ package main
 
 var defaultTemplate = `
 [vars]
-  ignoreDirs = [".git", "internal"]
+  ignoreDirs = [".git", "Godeps", "vendor"]
+  stopLoadingParent = [".git"]
 
 [install]
   [install.goget]
