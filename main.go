@@ -11,6 +11,7 @@ import (
 	"io"
 
 	"github.com/cep21/gobuild/internal/golang.org/x/net/context"
+	"path/filepath"
 )
 
 type gobuildMain struct {
@@ -149,19 +150,44 @@ func (g *gobuildMain) install(ctx context.Context, dirs []string) error {
 	return c.Run(ctx)
 }
 
+func (g *gobuildMain) storageDirectory() (string, error) {
+	tmpl, err := g.tc.loadInDir(".")
+	if err != nil {
+		return "", wraperr(err, "cannot load root template directory")
+	}
+	fromEnv := os.Getenv(tmpl.varStr("artifactsEnv"))
+	if fromEnv != "" {
+		return fromEnv, nil
+	}
+	artifactDir := filepath.Join(os.TempDir(), "gobuild")
+	if err := os.RemoveAll(artifactDir); err != nil {
+		return "", wraperr(err, "Cannot clean directory %s", artifactDir)
+	}
+	if err := os.MkdirAll(artifactDir, 0777); err != nil {
+		return "", wraperr(err, "Cannot create directory %s", artifactDir)
+	}
+
+	return artifactDir, nil
+}
+
 func (g *gobuildMain) test(ctx context.Context, dirs []string) error {
 	testDirs, err := dirsWithFileGob(dirs, "*.go")
 	if err != nil {
 		return wraperr(err, "cannot find *.go files in dirs")
 	}
-	fullOut, err := os.Create("/tmp/a/full_coverage_output.cover")
+	storageDir, err := g.storageDirectory()
+	if err != nil {
+		return wraperr(err, "cannot create test storage directory")
+	}
+	g.verboseLog.Printf("Storing results to %s", storageDir)
+	fullOut, err := os.Create(filepath.Join(storageDir, "full_coverage_output.cover"))
 	if err != nil {
 		return wraperr(err, "cannot create full coverage profile file")
 	}
 	c := goCoverageCheck{
 		dirs:               testDirs,
 		cache:              &g.tc,
-		coverProfileOutTo:  inDirStreamer("/tmp/a", ".cover"),
+		coverProfileOutTo:  inDirStreamer(storageDir, ".cover"),
 		testStdoutOutputTo: &myselfOutput{&nopCloseWriter{os.Stdout}},
 		testStderrOutputTo: &myselfOutput{&nopCloseWriter{os.Stderr}},
 		requiredCoverage:   1,

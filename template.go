@@ -98,6 +98,10 @@ func (b *buildTemplate) StopLoadingParent() []string {
 	return b.varStrArray("stopLoadingParent")
 }
 
+func (b *buildTemplate) varStr(name string) string {
+	return b.Vars[name].(string)
+}
+
 func (b *buildTemplate) varStrArray(name string) []string {
 	ignores, exists := b.Vars[name]
 	if !exists {

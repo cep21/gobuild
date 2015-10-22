@@ -5,6 +5,7 @@ var defaultTemplate = `
   ignoreDirs = [".git", "Godeps", "vendor"]
   stopLoadingParent = [".git"]
   buildFlags = ["."]
+  artifactsEnv = "CIRCLE_ARTIFACTS"
 
 [gotestcoverage]
   timeout = "10s"
