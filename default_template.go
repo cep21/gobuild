@@ -4,6 +4,14 @@ var defaultTemplate = `
 [vars]
   ignoreDirs = [".git", "Godeps", "vendor"]
   stopLoadingParent = [".git"]
+  buildFlags = ["."]
+
+[gotestcoverage]
+  timeout = "10s"
+  cpu = "4"
+  parallel = 8
+  race = true
+  covermode = "atomic"
 
 [install]
   [install.goget]

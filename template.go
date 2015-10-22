@@ -75,7 +75,7 @@ func (b *buildTemplate) MergeFrom(from *buildTemplate) {
 }
 
 func (b *buildTemplate) BuildFlags() []string {
-	return []string{"."}
+	return b.varStrArray("buildFlags")
 }
 
 func (b *buildTemplate) TestCoverageArgs() []string {
