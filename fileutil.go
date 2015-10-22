@@ -1,9 +1,6 @@
 package main
 
 import (
-	"io"
-	"io/ioutil"
-	"os"
 	"path/filepath"
 	"sort"
 )
@@ -44,18 +41,4 @@ func dirsWithFileGob(dirs []string, glob string) ([]string, error) {
 	}
 	sort.Strings(ret)
 	return ret, nil
-}
-
-func filenameToWriter(filename string) (io.WriteCloser, error) {
-	if filename == "" {
-		return &nopCloseWriter{ioutil.Discard}, nil
-	}
-	if filename == "-" {
-		return &nopCloseWriter{os.Stderr}, nil
-	}
-	f, err := os.Create(filename)
-	if err != nil {
-		return nil, wraperr(err, "cannot open filename %s", filename)
-	}
-	return f, nil
 }

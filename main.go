@@ -8,8 +8,9 @@ import (
 	"os"
 	"strings"
 
-	"golang.org/x/net/context"
 	"io"
+
+	"golang.org/x/net/context"
 )
 
 type gobuildMain struct {
@@ -95,10 +96,10 @@ func (g *gobuildMain) lint(ctx context.Context, dirs []string) error {
 func (g *gobuildMain) build(ctx context.Context, dirs []string) error {
 	c := cmdBuild{
 		verboseLog: g.verboseLog,
-		errorLog:     g.errLog,
-		cmdStdout: &myselfOutput{&nopCloseWriter{os.Stdout}},
-		cmdStderr: &myselfOutput{&nopCloseWriter{os.Stderr}},
-		dirs: dirs,
+		errorLog:   g.errLog,
+		cmdStdout:  &myselfOutput{&nopCloseWriter{os.Stdout}},
+		cmdStderr:  &myselfOutput{&nopCloseWriter{os.Stderr}},
+		dirs:       dirs,
 		cache:      &g.tc,
 	}
 	return c.Run(ctx)
@@ -111,10 +112,10 @@ func (g *gobuildMain) dupl(ctx context.Context, dirs []string) error {
 	}
 	c := duplCmd{
 		verboseLog: g.verboseLog,
-		dirs: dirs,
+		dirs:       dirs,
 		consoleOut: os.Stdout,
-		htmlOut: ioutil.Discard,
-		tmpl: tmpl,
+		htmlOut:    ioutil.Discard,
+		tmpl:       tmpl,
 	}
 	return c.Run(ctx)
 }
@@ -126,11 +127,11 @@ func (g *gobuildMain) install(ctx context.Context, dirs []string) error {
 	}
 	c := installCmd{
 		forceReinstall: false,
-		verboseLog: g.verboseLog,
-		errLog: g.errLog,
-		stdoutOutput: os.Stdout,
-		stderrOutput: os.Stderr,
-		tmpl: tmpl,
+		verboseLog:     g.verboseLog,
+		errLog:         g.errLog,
+		stdoutOutput:   os.Stdout,
+		stderrOutput:   os.Stderr,
+		tmpl:           tmpl,
 	}
 	return c.Run(ctx)
 }
@@ -141,14 +142,14 @@ func (g *gobuildMain) test(ctx context.Context, dirs []string) error {
 		return wraperr(err, "cannot find *.go files in dirs")
 	}
 	c := goCoverageCheck{
-		dirs: testDirs,
-		cache: &g.tc,
-		coverProfileOutTo: inDirStreamer("/tmp/a"),
+		dirs:               testDirs,
+		cache:              &g.tc,
+		coverProfileOutTo:  inDirStreamer("/tmp/a"),
 		testStdoutOutputTo: &myselfOutput{&nopCloseWriter{os.Stdout}},
 		testStderrOutputTo: &myselfOutput{&nopCloseWriter{os.Stderr}},
-		requiredCoverage: 1,
-		verboseLog: g.verboseLog,
-		errLog: g.errLog,
+		requiredCoverage:   1,
+		verboseLog:         g.verboseLog,
+		errLog:             g.errLog,
 	}
 	return c.Run(ctx)
 }
@@ -173,12 +174,12 @@ func (g *gobuildMain) main() error {
 	}
 
 	cmdMap := map[string]func(context.Context, []string) error{
-		"fix":  g.fix,
-		"lint": g.lint,
-		"list": g.list,
-		"build": g.build,
-		"test": g.test,
-		"dupl": g.dupl,
+		"fix":     g.fix,
+		"lint":    g.lint,
+		"list":    g.list,
+		"build":   g.build,
+		"test":    g.test,
+		"dupl":    g.dupl,
 		"install": g.install,
 	}
 
@@ -186,7 +187,7 @@ func (g *gobuildMain) main() error {
 	f, exists := cmdMap[cmd]
 	if !exists {
 		fmt.Fprintf(g.stderr, "Unknown command %s\nValid commands:\n", cmd)
-		for k, _ := range cmdMap {
+		for k := range cmdMap {
 			fmt.Fprintf(g.stderr, "  %s\n", k)
 		}
 		return fmt.Errorf("unknown command %s", cmd)

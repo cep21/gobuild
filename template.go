@@ -128,6 +128,23 @@ type templateCache struct {
 
 const buildFileName = "gobuild.toml"
 
+func (t *templateCache) curDirTemplate(dir string) (*buildTemplate, error) {
+	var currentDirTemplate *buildTemplate
+	fullBuildFilePath := filepath.Join(dir, buildFileName)
+	t.verboseLog.Printf("Fresh template %s checking file %s", dir, fullBuildFilePath)
+
+	if l, err := os.Stat(fullBuildFilePath); err == nil && !l.IsDir() {
+		currentDirTemplate = &buildTemplate{}
+		if _, err := toml.DecodeFile(fullBuildFilePath, currentDirTemplate); err != nil {
+			return nil, wraperr(err, "invalid toml file at %s", fullBuildFilePath)
+		}
+		t.verboseLog.Printf("Loaded template for %s is %v", fullBuildFilePath, currentDirTemplate)
+	} else if !os.IsNotExist(err) {
+		return nil, wraperr(err, "cannot stat buildfile %s", fullBuildFilePath)
+	}
+	return currentDirTemplate, nil
+}
+
 func (t *templateCache) loadInDir(dir string) (*buildTemplate, error) {
 	t.verboseLog.Printf("Loading template for %s", dir)
 	if dir == "" {
@@ -140,21 +157,11 @@ func (t *templateCache) loadInDir(dir string) (*buildTemplate, error) {
 	if cache, exists := t.cache[dir]; exists {
 		return cache, nil
 	}
-	fullBuildFilePath := filepath.Join(dir, buildFileName)
-	var currentDirTemplate *buildTemplate
 
-	t.verboseLog.Printf("Fresh template %s checking file %s", dir, fullBuildFilePath)
-
-	if l, err := os.Stat(fullBuildFilePath); err == nil && !l.IsDir() {
-		currentDirTemplate = &buildTemplate{}
-		if _, err := toml.DecodeFile(fullBuildFilePath, currentDirTemplate); err != nil {
-			return nil, wraperr(err, "invalid toml file at %s", fullBuildFilePath)
-		}
-		t.verboseLog.Printf("Loaded template for %s is %v", fullBuildFilePath, currentDirTemplate)
-	} else if !os.IsNotExist(err) {
-		return nil, wraperr(err, "cannot stat buildfile %s", fullBuildFilePath)
+	currentDirTemplate, err := t.curDirTemplate(dir)
+	if err != nil {
+		return nil, wraperr(err, "cannot load templtae for current directory")
 	}
-
 	parentDirTemplate := &defaultLoadedTemplate
 	if t.shouldLoadParent(dir, currentDirTemplate) {
 		if parent := filepath.Dir(dir); parent != dir {

@@ -6,9 +6,10 @@ import (
 	"os"
 	"os/exec"
 
+	"strings"
+
 	"golang.org/x/net/context"
 	"golang.org/x/tools/cover"
-"strings"
 )
 
 type goCoverageCheck struct {

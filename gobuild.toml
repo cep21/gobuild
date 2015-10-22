@@ -13,6 +13,8 @@
 [metalinter]
   [metalinter.enabled]
     golint = true
+    gofmt = true
+    goimports = true
     varcheck = true
     aligncheck = true
     gocyclo = true

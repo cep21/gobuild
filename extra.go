@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"text/template"
 
-	"golang.org/x/net/context"
 	"path/filepath"
 )
 
@@ -69,29 +67,6 @@ func (e *wrappedError) Error() string {
 	return fmt.Sprintf("%s: %s", e.msg, e.err.Error())
 }
 
-func runInContext(ctx context.Context, cmd *exec.Cmd, verboseLog logger, warningLog logger) error {
-	if err := cmd.Start(); err != nil {
-		return wraperr(err, "uanble to start command")
-	}
-
-	doneWaiting := make(chan struct{})
-	//	av := atomic.Value{}
-	var waitError error
-	go func() {
-		defer close(doneWaiting)
-		waitError = cmd.Wait()
-	}()
-	select {
-	case <-ctx.Done():
-		logIfErr(cmd.Process.Kill(), warningLog, "Error killing process")
-		// The above kill should cause cmd.Wait() to finish
-		<-doneWaiting
-		return ctx.Err()
-	case <-doneWaiting:
-		return waitError
-	}
-}
-
 type nopCloseWriter struct {
 	io.Writer
 }
@@ -140,7 +115,7 @@ func (d *fileStreamer) GetCmdOutput(cmdName string) (io.WriteCloser, error) {
 }
 
 func inDirStreamer(dir string) *fileStreamer {
-	defaultVars := map[string]interface{} {
+	defaultVars := map[string]interface{}{
 		"dir": dir,
 	}
 	funcMap := template.FuncMap{
@@ -149,8 +124,8 @@ func inDirStreamer(dir string) *fileStreamer {
 		},
 	}
 	ft := template.Must(template.New("for dir").Funcs(funcMap).Parse("{{ CreateName .dir .cmdName }}"))
-	return &fileStreamer {
-		defaultVars: defaultVars,
+	return &fileStreamer{
+		defaultVars:      defaultVars,
 		filenameTemplate: ft,
 	}
 }
