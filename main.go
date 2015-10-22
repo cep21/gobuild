@@ -57,8 +57,8 @@ func (g *gobuildMain) parseFlags() error {
 	if g.flags.verbose {
 		vlog = os.Stderr
 	}
-	g.verboseLog = log.New(vlog, "[gobuild-verbose]", log.LstdFlags | log.Lshortfile)
-	g.errLog = log.New(os.Stderr, "[gobuild-err]", log.LstdFlags | log.Lshortfile)
+	g.verboseLog = log.New(vlog, "[gobuild-verbose]", log.LstdFlags|log.Lshortfile)
+	g.errLog = log.New(os.Stderr, "[gobuild-err]", log.LstdFlags|log.Lshortfile)
 	return nil
 }
 
