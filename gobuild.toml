@@ -1,2 +1,38 @@
 [vars]
-  ignoreDirs = ["^_example$",  "^.git$", "^internal$"]
+  ignoreDirs = [".git", "internal"]
+
+[install]
+  [install.goget]
+    gometalinter = "github.com/alecthomas/gometalinter"
+    golint = "github.com/golang/lint/golint"
+    goimports = "golang.org/x/tools/cmd/goimports"
+    gocyclo = "github.com/fzipp/gocyclo"
+    aligncheck = "github.com/opennota/check/cmd/aligncheck"
+    varcheck = "github.com/opennota/check/cmd/varcheck"
+
+[fix]
+  [fix.gofmt]
+    cmd = "gofmt"
+    args = ["-s", "-w"]
+    append-files = "*.go"
+
+  [fix.goimports]
+    cmd = "goimports"
+    args = [-w"]
+    append-files = "*.go"
+
+[check]
+  [check.gometalinter]
+    cmd = "gometalinter"
+    args = ["--disable-all"]
+
+  [check.dupl]
+    cmd = "dupl"
+    args = ["-files", "-t", "{{.dupl_threshold}}", "-plumbing"]
+    stdin-files = "*.go"
+
+  [check.dupl_report]
+    cmd = "dupl"
+    args = ["-files", "-t", "{{.dupl_threshold}}", "-html"]
+    append-files = "*.go"
+    save-stdout = ["dupl_report.html"]

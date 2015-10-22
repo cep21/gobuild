@@ -1,5 +1,5 @@
 [vars]
-  ignoreDirs = ["^ignoreme$"]
+  ignoreDirs = ["subdir"]
 
 [cmd.custom]
   macros = ["golint"]

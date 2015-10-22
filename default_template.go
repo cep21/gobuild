@@ -11,6 +11,9 @@ var defaultTemplate = `
   macros = ["gofmt-fix", "goimports-fix"]
   run-next = ["check"]
 
+[cmd.dir]
+  macros = ["print_dir"]
+
 [vars]
   duplthreshold = 75
   min_confidence = 0.8
@@ -129,6 +132,10 @@ var defaultTemplate = `
   message = "file is not goimported"
   goget="golang.org/x/tools/cmd/goimports"
   append-files=true
+
+[macro.print_dir]
+  cmd="echo"
+  if-files=[".*\\.go"]
 
 [macro.gofmt-fix]
   cmd="gofmt"

@@ -21,8 +21,8 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/cep21/gobuild/internal/github.com/BurntSushi/toml"
-	"github.com/cep21/gobuild/internal/golang.org/x/net/context"
+	"github.com/BurntSushi/toml"
+	"golang.org/x/net/context"
 )
 
 type macro struct {
@@ -1027,6 +1027,9 @@ func (t *templateFinder) loadInDir(dirname string) (*gobuildInfo, error) {
 		return nil, err
 	}
 
+}
+
+func (t *templateFinder) fromLoadingParent(dirname string) (*gobuildInfo, error) {
 	parentInfo, err := t.parentInfo(stopCheck, dirname, parent)
 	if err != nil {
 		return nil, err
