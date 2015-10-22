@@ -21,7 +21,7 @@ test:
     - mkdir -p $SRC_PATH
     - rsync -azC --delete ./ $SRC_PATH
     - cd $SRC_PATH && go test .
-    - cd $SRC_PATH && go build . && ./gobuild
+    - cd $SRC_PATH && go build . && ./gobuild -verbose
   post:
     - go get github.com/mitchellh/gox
     - cd $SRC_PATH && gox -output "$CIRCLE_ARTIFACTS/dist/gobuild_{{.OS}}_{{.Arch}}"
