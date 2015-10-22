@@ -8,9 +8,10 @@ import (
 
 	"strings"
 
+	"bufio"
+
 	"github.com/cep21/gobuild/internal/golang.org/x/net/context"
 	"github.com/cep21/gobuild/internal/golang.org/x/tools/cover"
-	"bufio"
 )
 
 type goCoverageCheck struct {
@@ -53,6 +54,16 @@ type hasName interface {
 
 var _ hasName = &os.File{}
 
+func writeLine(w io.Writer, line string) error {
+	if _, err := io.WriteString(w, line); err != nil {
+		return wraperr(err, "cannot write to coverprofile")
+	}
+	if _, err := io.WriteString(w, "\n"); err != nil {
+		return wraperr(err, "cannot write to coverprofile")
+	}
+	return nil
+}
+
 func (g *goCoverageCheck) combineCoverageProfiles(filenames []string) error {
 	writtenHead := false
 	for _, filename := range filenames {
@@ -65,20 +76,14 @@ func (g *goCoverageCheck) combineCoverageProfiles(filenames []string) error {
 			curLine := s.Text()
 			if strings.HasPrefix(curLine, "mode:") {
 				if !writtenHead {
-					if _, err := io.WriteString(g.fullCoverageOutput, curLine); err != nil {
-						return wraperr(err, "cannot write to coverprofile")
-					}
-					if _, err := io.WriteString(g.fullCoverageOutput, "\n"); err != nil {
+					if err := writeLine(g.fullCoverageOutput, curLine); err != nil {
 						return wraperr(err, "cannot write to coverprofile")
 					}
 					writtenHead = true
 				}
 				continue
 			}
-			if _, err := io.WriteString(g.fullCoverageOutput, curLine); err != nil {
-				return wraperr(err, "cannot write to coverprofile")
-			}
-			if _, err := io.WriteString(g.fullCoverageOutput, "\n"); err != nil {
+			if err := writeLine(g.fullCoverageOutput, curLine); err != nil {
 				return wraperr(err, "cannot write to coverprofile")
 			}
 		}
