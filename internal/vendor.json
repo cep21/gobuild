@@ -1,0 +1,21 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"path": "github.com/BurntSushi/toml",
+			"revision": "056c9bc7be7190eaa7715723883caffa5f8fa3e4",
+			"revisionTime": "2015-05-01T06:40:42-04:00"
+		},
+		{
+			"path": "golang.org/x/net/context",
+			"revision": "9946ad7d5eae91d8edca4f54d1a1e130a052e823",
+			"revisionTime": "2015-10-20T22:50:55Z"
+		},
+		{
+			"path": "golang.org/x/tools/cover",
+			"revision": "f941d540e399747b10540b096ff9300cb3a35ad9",
+			"revisionTime": "2015-10-08T19:37:13+08:00"
+		}
+	]
+}
