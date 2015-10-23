@@ -12,6 +12,8 @@ import (
 
 	"path/filepath"
 
+	"os/exec"
+
 	"github.com/cep21/gobuild/internal/golang.org/x/net/context"
 )
 
@@ -207,7 +209,8 @@ func (g *gobuildMain) test(ctx context.Context, dirs []string) error {
 		return wraperr(err, "cannot find *.go files in dirs")
 	}
 
-	fullOut, err := os.Create(filepath.Join(g.storageDir, "full_coverage_output.cover.txt"))
+	fullCoverageFilename := filepath.Join(g.storageDir, "full_coverage_output.cover.txt")
+	fullOut, err := os.Create(fullCoverageFilename)
 	if err != nil {
 		return wraperr(err, "cannot create full coverage profile file")
 	}
@@ -224,7 +227,23 @@ func (g *gobuildMain) test(ctx context.Context, dirs []string) error {
 	}
 	e1 := c.Run(ctx)
 	e2 := fullOut.Close()
-	return multiErr([]error{e1, e2})
+	var e3 error
+	if e2 == nil {
+		htmlFilename := filepath.Join(g.storageDir, "full_coverage_output.cover.html")
+		e3 = g.genCoverageHTML(ctx, fullCoverageFilename, htmlFilename)
+	}
+	return multiErr([]error{e1, e2, e3})
+}
+
+func (g *gobuildMain) genCoverageHTML(ctx context.Context, coverFilename string, htmlFilename string) error {
+	cmd := exec.Command("go", "tool", "cover", "-o", htmlFilename, "-html", coverFilename)
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+	g.verboseLog.Printf("Generating coverage html %s => %s with %v", coverFilename, htmlFilename, cmd)
+	if err := cmd.Run(); err != nil {
+		return wraperr(err, "coverage HTML generation failed")
+	}
+	return nil
 }
 
 func (g *gobuildMain) check(ctx context.Context, dirs []string) error {
