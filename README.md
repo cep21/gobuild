@@ -2,7 +2,7 @@
 
 Code lint and build tool for go code on build servers and developer machines.
 
-# Features
+## Features
 
 * Runs in windows/linux/mac without extra dependencies
 * Simple usage with minimal command line parameters
@@ -17,51 +17,52 @@ Code lint and build tool for go code on build servers and developer machines.
 * Can ignore directories, files, or messages
 * Easy to templatize
 
-# Expected usage ...
+## Expected usage
 
-## ... as a developer ...
+### as a developer
 
-### ... to check everything
+### to check everything
 
 ```
 gobuild
-``` 
+```
 
-### ... to just run lints
+### to just run lints
 
 ```
 gobuild lint
 ```
 
-## ... to auto format code
+### to auto format code
 
 ```
 gobuild fix
 ```
 
-# Why not just use ...
+## Why not just use
 
-## ... go build
+### go build
 
-I want to automate running of gofmt, go vet, and other checks.  There are also multiple binaries
-that can be built.
+I want to automate running of gofmt, go vet, and other checks.  There are also
+multiple binaries that can be built.
 
-## ... bash scripts
+### bash scripts
 
-I want easy windows support without installing cygwin and other windows dependencies.  I also want
-to templatize the common parts.  Finally, I subjectively think go is a better cross platform
-language than bash.
+I want easy windows support without installing cygwin and other windows
+dependencies.  I also want to templatize the common parts.  Finally, I
+subjectively think go is a better cross platform language than bash.
 
-## ... gometalinter
+### gometalinter
 
-I want subdirectory reconfiguration and auto formatting.  Also, the simplicity of a running the
-command without any arguments and it doing the right thing was attractive.
+I want subdirectory reconfiguration and auto formatting.  Also, the simplicity
+of a running the command without any arguments and it doing the right thing was
+attractive.
 
-## ... cmake
+### cmake
 
-Cmake on windows requires a bit more setup than I want.  Also sharing templates was more work than
-I wanted to push on users
+Cmake on windows requires a bit more setup than I want.  Also sharing templates
+was more work than I wanted to push on users
 
-## ... maven
+### maven
 
 Configuration format (xml) is a bit difficult to read.
