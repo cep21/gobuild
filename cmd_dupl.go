@@ -6,8 +6,9 @@ import (
 	"os/exec"
 	"strings"
 
+	"errors"
+
 	"github.com/cep21/gobuild/internal/golang.org/x/net/context"
-"errors"
 )
 
 type duplCmd struct {
