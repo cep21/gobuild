@@ -18,7 +18,7 @@ dependencies:
   cache_directories:
     # All the versions of 'go' go here.
     - /usr/local/gover
-    - $CACHED_LINT_TOOLS_DIR
+    - ~/lints
   override:
     - install_all_go_versions.sh
     - install_lint_tools.sh
