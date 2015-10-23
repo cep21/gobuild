@@ -15,7 +15,7 @@ checkout:
 
 dependencies:
   cache_directories:
-    - /usr/local/gover
+    - ~/gover
     - ~/lints
   override:
     - install_all_go_versions.sh
