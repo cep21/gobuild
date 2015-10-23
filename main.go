@@ -19,9 +19,10 @@ type gobuildMain struct {
 	args []string
 
 	flags struct {
-		verbose   bool
-		chunkSize int
-		forceAbs  bool
+		verbose     bool
+		verboseFile string
+		chunkSize   int
+		forceAbs    bool
 	}
 
 	tc templateCache
@@ -30,6 +31,8 @@ type gobuildMain struct {
 	errLog     logger
 
 	stderr io.Writer
+
+	onClose []func() error
 }
 
 var mainInstance = gobuildMain{
@@ -41,6 +44,7 @@ var mainInstance = gobuildMain{
 
 func init() {
 	flag.BoolVar(&mainInstance.flags.verbose, "verbose", false, "Add verbose log to stderr")
+	flag.StringVar(&mainInstance.flags.verboseFile, "verbosefile", "", "Will verbose log to a filename rather than stderr")
 	flag.IntVar(&mainInstance.flags.chunkSize, "chunksize", 250, "size to chunk xargs into")
 	flag.BoolVar(&mainInstance.flags.forceAbs, "abs", false, "will force abs paths for ... dirs")
 }
@@ -58,6 +62,14 @@ func (g *gobuildMain) parseFlags() error {
 	vlog := ioutil.Discard
 	if g.flags.verbose {
 		vlog = os.Stderr
+		if g.flags.verboseFile != "" {
+			verboseFile, err := os.Create(g.flags.verboseFile)
+			if err != nil {
+				return wraperr(err, "cannot create verbose file %s", g.flags.verboseFile)
+			}
+			vlog = verboseFile
+			g.onClose = append(g.onClose, verboseFile.Close)
+		}
 	}
 	g.verboseLog = log.New(vlog, "[gobuild-verbose]", log.LstdFlags|log.Lshortfile)
 	g.errLog = log.New(os.Stderr, "[gobuild-err]", log.LstdFlags|log.Lshortfile)
@@ -219,7 +231,23 @@ func (g *gobuildMain) list(ctx context.Context, dirs []string) error {
 	return nil
 }
 
+func (g *gobuildMain) Close() error {
+	errs := make([]error, 0, len(g.onClose))
+	for _, f := range g.onClose {
+		if err := f(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return multiErr(errs)
+}
+
 func (g *gobuildMain) main() error {
+	defer func() {
+		if err := g.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Cannot close mainInstance: %s\n", err.Error())
+		}
+	}()
+
 	if err := g.parseFlags(); err != nil {
 		return wraperr(err, "cannot parse flags")
 	}
