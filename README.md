@@ -21,22 +21,28 @@ Code lint and build tool for go code on build servers and developer machines.
 
 ### as a developer
 
-### to check everything
+#### to check everything
 
 ```
 gobuild
 ```
 
-### to just run lints
+#### to just run lints
 
 ```
 gobuild lint
 ```
 
-### to auto format code
+#### to auto format code
 
 ```
 gobuild fix
+```
+
+### as a build system
+
+```
+gobuild -verbose -verbosefile build_output.txt
 ```
 
 ## Why not just use
