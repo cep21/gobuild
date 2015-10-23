@@ -19,6 +19,7 @@ var defaultTemplate = `
   [install.goget]
     gometalinter = "github.com/alecthomas/gometalinter"
     golint = "github.com/golang/lint/golint"
+    go-junit-report = "github.com/jstemmer/go-junit-report"
     goimports = "golang.org/x/tools/cmd/goimports"
     gocyclo = "github.com/alecthomas/gocyclo"
     aligncheck = "github.com/opennota/check/cmd/aligncheck"
