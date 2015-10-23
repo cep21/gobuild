@@ -153,7 +153,7 @@ func (g *gobuildMain) dupl(ctx context.Context, dirs []string) error {
 	if err != nil {
 		return wraperr(err, "cannot load root dir template")
 	}
-	htmlOut, err := os.Create(filepath.Join(g.storageDir, "coverage.html"))
+	htmlOut, err := os.Create(filepath.Join(g.storageDir, "dupl.html"))
 	if err != nil {
 		return wraperr(err, "cannot create coverage html file")
 	}
