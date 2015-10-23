@@ -87,7 +87,7 @@ func (b *buildTemplate) MetalintIgnoreLines() []string {
 }
 
 func (b *buildTemplate) DuplArgs() []string {
-	return []string{"-files", "-t", "100"}
+	return []string{"-files", "-t", b.varStr("duplLimit")}
 }
 
 func (b *buildTemplate) IgnoreDirs() []string {

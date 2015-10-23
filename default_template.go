@@ -7,6 +7,7 @@ var defaultTemplate = `
   buildFlags = ["."]
   artifactsEnv = "CIRCLE_ARTIFACTS"
   testReportEnv = "CIRCLE_TEST_REPORTS"
+  duplLimit = "100"
 
 [gotestcoverage]
   timeout = "10s"
