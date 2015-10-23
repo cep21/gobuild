@@ -91,11 +91,15 @@ func (g *gobuildMain) lint(ctx context.Context, dirs []string) error {
 	if err := g.install(ctx, dirs); err != nil {
 		return wraperr(err, "cannot install subcommands")
 	}
+	testDirs, err := dirsWithFileGob(dirs, "*.go")
+	if err != nil {
+		return wraperr(err, "cannot find *.go files in dirs")
+	}
 	c := gometalinterCmd{
 		verboseLog: g.verboseLog,
 		errLog:     g.errLog,
 		metaOutput: &myselfOutput{&nopCloseWriter{os.Stderr}},
-		dirsToLint: dirs,
+		dirsToLint: testDirs,
 		cache:      &g.tc,
 	}
 	return c.Run(ctx)
@@ -191,7 +195,7 @@ func (g *gobuildMain) test(ctx context.Context, dirs []string) error {
 		coverProfileOutTo:  inDirStreamer(storageDir, ".cover"),
 		testStdoutOutputTo: &myselfOutput{&nopCloseWriter{os.Stdout}},
 		testStderrOutputTo: &myselfOutput{&nopCloseWriter{os.Stderr}},
-		requiredCoverage:   1,
+		requiredCoverage:   0,
 		verboseLog:         g.verboseLog,
 		errLog:             g.errLog,
 		fullCoverageOutput: fullOut,
