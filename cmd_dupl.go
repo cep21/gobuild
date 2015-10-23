@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cep21/gobuild/internal/golang.org/x/net/context"
+"errors"
 )
 
 type duplCmd struct {
@@ -39,8 +40,13 @@ func (d *duplCmd) Run(ctx context.Context) error {
 	if err != nil {
 		return wraperr(err, "could not copy html dupl output, wrote %d", n)
 	}
+	if len(regDuplOut) > 2 {
+		return errDuplicatesDetected
+	}
 	return nil
 }
+
+var errDuplicatesDetected = errors.New("duplicates detected in files")
 
 func (d *duplCmd) runDupl(ctx context.Context, extraArgs []string) ([]byte, error) {
 	cmdName := "dupl"
