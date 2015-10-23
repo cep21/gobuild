@@ -25,7 +25,8 @@ type gobuildMain struct {
 		forceAbs    bool
 	}
 
-	tc templateCache
+	tc         templateCache
+	storageDir string
 
 	verboseLog logger
 	errLog     logger
@@ -73,6 +74,15 @@ func (g *gobuildMain) parseFlags() error {
 	}
 	g.verboseLog = log.New(vlog, "[gobuild-verbose]", log.LstdFlags|log.Lshortfile)
 	g.errLog = log.New(os.Stderr, "[gobuild-err]", log.LstdFlags|log.Lshortfile)
+	g.tc.verboseLog = g.verboseLog
+
+	var err error
+	g.storageDir, err = g.storageDirectory()
+	if err != nil {
+		return wraperr(err, "cannot create test storage directory")
+	}
+	g.verboseLog.Printf("Storing results to %s", g.storageDir)
+
 	return nil
 }
 
@@ -141,14 +151,18 @@ func (g *gobuildMain) dupl(ctx context.Context, dirs []string) error {
 	if err != nil {
 		return wraperr(err, "cannot load root dir template")
 	}
+	htmlOut, err := os.Create(filepath.Join(g.storageDir, "coverage.html"))
+	if err != nil {
+		return wraperr(err, "cannot create coverage html file")
+	}
 	c := duplCmd{
 		verboseLog: g.verboseLog,
 		dirs:       dirs,
 		consoleOut: os.Stdout,
-		htmlOut:    ioutil.Discard,
+		htmlOut:    htmlOut,
 		tmpl:       tmpl,
 	}
-	return c.Run(ctx)
+	return multiErr([]error{c.Run(ctx), htmlOut.Close()})
 }
 
 func (g *gobuildMain) install(ctx context.Context, dirs []string) error {
@@ -192,19 +206,15 @@ func (g *gobuildMain) test(ctx context.Context, dirs []string) error {
 	if err != nil {
 		return wraperr(err, "cannot find *.go files in dirs")
 	}
-	storageDir, err := g.storageDirectory()
-	if err != nil {
-		return wraperr(err, "cannot create test storage directory")
-	}
-	g.verboseLog.Printf("Storing results to %s", storageDir)
-	fullOut, err := os.Create(filepath.Join(storageDir, "full_coverage_output.cover"))
+
+	fullOut, err := os.Create(filepath.Join(g.storageDir, "full_coverage_output.cover.txt"))
 	if err != nil {
 		return wraperr(err, "cannot create full coverage profile file")
 	}
 	c := goCoverageCheck{
 		dirs:               testDirs,
 		cache:              &g.tc,
-		coverProfileOutTo:  inDirStreamer(storageDir, ".cover"),
+		coverProfileOutTo:  inDirStreamer(g.storageDir, ".cover.txt"),
 		testStdoutOutputTo: &myselfOutput{&nopCloseWriter{os.Stdout}},
 		testStderrOutputTo: &myselfOutput{&nopCloseWriter{os.Stderr}},
 		requiredCoverage:   0,
@@ -251,7 +261,6 @@ func (g *gobuildMain) main() error {
 	if err := g.parseFlags(); err != nil {
 		return wraperr(err, "cannot parse flags")
 	}
-	g.tc.verboseLog = g.verboseLog
 	ctx := context.Background()
 
 	pe := pathExpansion{
