@@ -4,9 +4,14 @@ machine:
     GO15VENDOREXPERIMENT: 1
     GOROOT: /usr/local/go
     GOPATH: "$HOME/.go"
-    PATH: "$GOROOT/bin:$GOPATH/bin:$PATH"
+    CACHED_LINT_TOOLS_DIR: "$HOME/lints"
+    PATH: "$GOROOT/bin:$GOPATH/bin:$HOME/circleutil/scripts:$CACHED_LINT_TOOLS_DIR:$PATH"
     IMPORT_PATH: "github.com/cep21/gobuild"
     SRC_PATH: "$GOPATH/src/$IMPORT_PATH"
+
+checkout:
+  post:
+    - git clone github.com/cep21/circleutil $HOME/circleutil
 
 # TODO: Cache this if it exists???
 dependencies:
@@ -14,13 +19,13 @@ dependencies:
     # All the versions of 'go' go here.
     - /usr/local/gover
   override:
-    - ./install_all_go_versions.sh
-    - rm -rf $HOME/.go_workspace $HOME/.gradle $HOME/.ivy2 $HOME/.m2
+    - install_all_go_versions.sh
+    - install_lint_tools.sh
+    - remove_useless_cache_dirs.sh
 
 test:
   override:
-    - mkdir -p $SRC_PATH
-    - rsync -azC --delete ./ $SRC_PATH
+    - copy_local_code_to_gopath.sh
     - cd $SRC_PATH && go test .
     - cd $SRC_PATH && go build . && ./gobuild -verbose
 
@@ -29,7 +34,4 @@ deployment:
     tag: /v[0-9]+(\.[0-9]+)*/
     owner: cep21
     commands:
-      - go get github.com/mitchellh/gox
-      - cd $SRC_PATH && gox -output "$CIRCLE_ARTIFACTS/dist/gobuild_{{.OS}}_{{.Arch}}"
-      - go get github.com/tcnksm/ghr
-      - ghr -t $GITHUB_TOKEN -u $CIRCLE_PROJECT_USERNAME -r $CIRCLE_PROJECT_REPONAME --replace `git describe --tags` $CIRCLE_ARTIFACTS/dist/
+      - deploy_distributions.sh
