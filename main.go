@@ -27,8 +27,9 @@ type gobuildMain struct {
 		forceAbs    bool
 	}
 
-	tc         templateCache
-	storageDir string
+	tc                templateCache
+	storageDir        string
+	testrunStorageDir string
 
 	verboseLog logger
 	errLog     logger
@@ -82,6 +83,10 @@ func (g *gobuildMain) parseFlags() error {
 	g.storageDir, err = g.storageDirectory()
 	if err != nil {
 		return wraperr(err, "cannot create test storage directory")
+	}
+	g.testrunStorageDir, err = g.testReportDirectory()
+	if err != nil {
+		return wraperr(err, "cannot create test run storage directory")
 	}
 	g.verboseLog.Printf("Storing results to %s", g.storageDir)
 
@@ -183,16 +188,24 @@ func (g *gobuildMain) install(ctx context.Context, dirs []string) error {
 	return c.Run(ctx)
 }
 
+func (g *gobuildMain) testReportDirectory() (string, error) {
+	return g.makeEnvDirectory("testReportEnv", "gobuild-tests")
+}
+
 func (g *gobuildMain) storageDirectory() (string, error) {
+	return g.makeEnvDirectory("artifactsEnv", "gobuild")
+}
+
+func (g *gobuildMain) makeEnvDirectory(envName string, subdirName string) (string, error) {
 	tmpl, err := g.tc.loadInDir(".")
 	if err != nil {
 		return "", wraperr(err, "cannot load root template directory")
 	}
-	fromEnv := os.Getenv(tmpl.varStr("artifactsEnv"))
+	fromEnv := os.Getenv(tmpl.varStr(envName))
 	if fromEnv != "" {
 		return fromEnv, nil
 	}
-	artifactDir := filepath.Join(os.TempDir(), "gobuild")
+	artifactDir := filepath.Join(os.TempDir(), subdirName)
 	if err := os.RemoveAll(artifactDir); err != nil {
 		return "", wraperr(err, "Cannot clean directory %s", artifactDir)
 	}
@@ -214,16 +227,22 @@ func (g *gobuildMain) test(ctx context.Context, dirs []string) error {
 	if err != nil {
 		return wraperr(err, "cannot create full coverage profile file")
 	}
+	fullTestOutputFilename := filepath.Join(g.storageDir, "full_test_output.txt")
+	fullTestStdout, err := os.Create(fullTestOutputFilename)
+	if err != nil {
+		return wraperr(err, "cannot create full test output file")
+	}
 	c := goCoverageCheck{
-		dirs:               testDirs,
-		cache:              &g.tc,
-		coverProfileOutTo:  inDirStreamer(g.storageDir, ".cover.txt"),
-		testStdoutOutputTo: &myselfOutput{&nopCloseWriter{os.Stdout}},
-		testStderrOutputTo: &myselfOutput{&nopCloseWriter{os.Stderr}},
-		requiredCoverage:   0,
-		verboseLog:         g.verboseLog,
-		errLog:             g.errLog,
-		fullCoverageOutput: fullOut,
+		dirs:                testDirs,
+		cache:               &g.tc,
+		coverProfileOutTo:   inDirStreamer(g.storageDir, ".cover.txt"),
+		testStdoutOutputTo:  &myselfOutput{&nopCloseWriter{os.Stdout}},
+		testStderrOutputTo:  &myselfOutput{&nopCloseWriter{os.Stderr}},
+		requiredCoverage:    0,
+		verboseLog:          g.verboseLog,
+		errLog:              g.errLog,
+		fullCoverageOutput:  fullOut,
+		aggregateTestStdout: fullTestStdout,
 	}
 	e1 := c.Run(ctx)
 	e2 := fullOut.Close()
@@ -232,7 +251,41 @@ func (g *gobuildMain) test(ctx context.Context, dirs []string) error {
 		htmlFilename := filepath.Join(g.storageDir, "full_coverage_output.cover.html")
 		e3 = g.genCoverageHTML(ctx, fullCoverageFilename, htmlFilename)
 	}
-	return multiErr([]error{e1, e2, e3})
+	e4 := fullTestStdout.Close()
+	var e5 error
+	if e4 == nil {
+		e5 = g.genJunitXML(ctx, fullTestOutputFilename)
+	}
+	return multiErr([]error{e1, e2, e3, e4, e5})
+}
+
+func (g *gobuildMain) genJunitXML(ctx context.Context, fullTestOutputFilename string) error {
+	junitXMLOutputFileDir := filepath.Join(g.testrunStorageDir, "gotest")
+	if err := os.Mkdir(junitXMLOutputFileDir, 0777); err != nil {
+		return wraperr(err, "cannot make temp dir %s", junitXMLOutputFileDir)
+	}
+	xmlOutFilename := filepath.Join(junitXMLOutputFileDir, "junit-gotest.xml")
+	xmlOutFile, err := os.Create(xmlOutFilename)
+	if err != nil {
+		return wraperr(err, "cannot open xml run output file")
+	}
+	fullTestOutput, err := os.Open(fullTestOutputFilename)
+	if err != nil {
+		return wraperr(err, "cannot open test file for output")
+	}
+	return multiErr([]error{g.genJunitXMLFromBuffers(ctx, fullTestOutput, xmlOutFile), xmlOutFile.Close(), fullTestOutput.Close()})
+}
+
+func (g *gobuildMain) genJunitXMLFromBuffers(ctx context.Context, testInput io.Reader, testOutput io.Writer) error {
+	cmd := exec.Command("go-junit-report")
+	cmd.Stdin = testInput
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = testOutput
+	g.verboseLog.Printf("Generating junit XML with %v", cmd)
+	if err := cmd.Run(); err != nil {
+		return wraperr(err, "test junit XML generation failed")
+	}
+	return nil
 }
 
 func (g *gobuildMain) genCoverageHTML(ctx context.Context, coverFilename string, htmlFilename string) error {

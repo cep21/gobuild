@@ -13,10 +13,8 @@ checkout:
   post:
     - git clone https://github.com/cep21/circleutil.git $HOME/circleutil
 
-# TODO: Cache this if it exists???
 dependencies:
   cache_directories:
-    # All the versions of 'go' go here.
     - /usr/local/gover
     - ~/lints
   override:

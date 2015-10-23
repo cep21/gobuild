@@ -24,7 +24,8 @@ type goCoverageCheck struct {
 	verboseLog         logger
 	errLog             logger
 
-	fullCoverageOutput io.Writer
+	fullCoverageOutput  io.Writer
+	aggregateTestStdout io.Writer
 }
 
 func (g *goCoverageCheck) Run(ctx context.Context) error {
@@ -128,7 +129,7 @@ func (g *goCoverageCheck) runForDir(dir string) (string, error) {
 	}
 
 	cmd := exec.Command(cmdName, coverArgs...)
-	cmd.Stdout = stdout
+	cmd.Stdout = io.MultiWriter(stdout, g.aggregateTestStdout)
 	cmd.Stderr = stderr
 	cmd.Dir = dir
 	g.verboseLog.Printf("Running [cmd=%s args=%s dir=%s]", cmd.Path, strings.Join(cmd.Args, " "), cmd.Dir)

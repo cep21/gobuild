@@ -6,6 +6,7 @@ var defaultTemplate = `
   stopLoadingParent = [".git"]
   buildFlags = ["."]
   artifactsEnv = "CIRCLE_ARTIFACTS"
+  testReportEnv = "CIRCLE_TEST_REPORTS"
 
 [gotestcoverage]
   timeout = "10s"
