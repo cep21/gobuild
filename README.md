@@ -1,4 +1,4 @@
-# gobuild
+# gobuild [![Circle CI](https://circleci.com/gh/cep21/gobuild.svg?style=svg)](https://circleci.com/gh/cep21/gobuild)
 
 Code lint and build tool for go code on build servers and developer machines.
 
@@ -7,7 +7,6 @@ Code lint and build tool for go code on build servers and developer machines.
 * Runs in windows/linux/mac without extra dependencies
 * Simple usage with minimal command line parameters
 * Can run in subdirectories with understood usage of operating on sub-subdirectories
-* Parallelism of checks
 * Auto download of dependencies
 * Easy to read config format
 * Can auto format code for developers
@@ -17,8 +16,6 @@ Code lint and build tool for go code on build servers and developer machines.
 * Understands limiting directory search by git project
 * Can ignore directories, files, or messages
 * Easy to templatize
-* Builder versioning
-* Supports --diff option understanding recent changes from git release branch.
 
 # Expected usage ...
 
@@ -27,19 +24,19 @@ Code lint and build tool for go code on build servers and developer machines.
 ### ... to check everything
 
 ```
-gobuild -fix
+gobuild
 ``` 
 
-### ... to run a faster check from origin/master
+### ... to just run lints
 
 ```
-gobuild -fix -diff
+gobuild lint
 ```
 
-## ... as a build system
+## ... to auto format code
 
 ```
-gobuild
+gobuild fix
 ```
 
 # Why not just use ...
