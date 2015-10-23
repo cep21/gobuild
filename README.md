@@ -5,6 +5,7 @@ Code lint and build tool for go code on build servers and developer machines.
 ## Features
 
 * Runs in windows/linux/mac without extra dependencies
+* Native support for [CircleCI](https://circleci.com/)
 * Simple usage with minimal command line parameters
 * Can run in subdirectories with understood usage of operating on sub-subdirectories
 * Auto download of dependencies
