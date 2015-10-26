@@ -13,7 +13,7 @@ type buildTemplate struct {
 	Install    install                `toml:"install"`
 	Metalinter metalinter             `toml:"metalinter"`
 	Vars       map[string]interface{} `toml:"vars"`
-	Fix fixes `toml:"fix"`
+	Fix        fixes                  `toml:"fix"`
 }
 
 type fixes struct {
@@ -31,7 +31,6 @@ func (i *fixes) MergeFrom(from *fixes) {
 		i.Commands[k] = v
 	}
 }
-
 
 func (b *buildTemplate) FixesEnabled() map[string]bool {
 	return b.Fix.Commands
