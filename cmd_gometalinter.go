@@ -46,26 +46,33 @@ func (l *gometalinterCmd) Run(ctx context.Context) error {
 			dataParts = append(dataParts, errStr)
 		}
 		allFailures = append(allFailures, dataParts...)
-		dst, err := l.metaOutput.GetCmdOutput(dir)
-		if err != nil {
-			return wraperr(err, "unable to output gometalinter stderr/out to file")
-		}
-		data := strings.Join(dataParts, "\n") + "\n"
-		if len(dataParts) == 0 {
-			data = ""
-		}
-		l.verboseLog.Printf("Output metalint results to %s", dst)
-		if _, err := io.WriteString(dst, data); err != nil {
-			return wraperr(err, "unable to output gometalinter stderr/out to file")
-		}
-		if err := dst.Close(); err != nil {
-			l.errLog.Printf("Unable to close output destination: %s", err.Error())
+		if err := l.parseRunOutput(ctx, dir, dataParts); err != nil {
+			return wraperr(err, "cannot parse metalinter output")
 		}
 	}
 	if len(allFailures) == 0 {
 		return nil
 	}
 	return errLintFailures
+}
+
+func (l *gometalinterCmd) parseRunOutput(ctx context.Context, dir string, dataParts []string) error {
+	dst, err := l.metaOutput.GetCmdOutput(dir)
+	if err != nil {
+		return wraperr(err, "unable to output gometalinter stderr/out to file")
+	}
+	data := strings.Join(dataParts, "\n") + "\n"
+	if len(dataParts) == 0 {
+		data = ""
+	}
+	l.verboseLog.Printf("Output metalint results to %s", dst)
+	if _, err := io.WriteString(dst, data); err != nil {
+		return wraperr(err, "unable to output gometalinter stderr/out to file")
+	}
+	if err := dst.Close(); err != nil {
+		l.errLog.Printf("Unable to close output destination: %s", err.Error())
+	}
+	return nil
 }
 
 var validFilenames = regexp.MustCompile("[^A-Za-z0-9\\._-]+")
