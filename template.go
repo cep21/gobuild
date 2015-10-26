@@ -53,7 +53,7 @@ func (i *install) MergeFrom(from *install) {
 }
 
 type metalinter struct {
-	Enabled map[string]bool `toml:"enabled"`
+	Enabled map[string]bool   `toml:"enabled"`
 	Ignored map[string]string `toml:"ignored"`
 }
 

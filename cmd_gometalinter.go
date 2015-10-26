@@ -27,6 +27,9 @@ type gometalinterCmd struct {
 var errLintFailures = errors.New("gometalinter failures found")
 
 func (l *gometalinterCmd) Run(ctx context.Context) error {
+	if l.regexParseCache == nil {
+		l.regexParseCache = make(map[string]*regexp.Regexp, 10)
+	}
 	allFailures := make([]string, 0, len(l.dirsToLint))
 	for _, dir := range l.dirsToLint {
 		tmpl, err := l.cache.loadInDir(dir)
