@@ -9,6 +9,11 @@ var defaultTemplate = `
   testReportEnv = "CIRCLE_TEST_REPORTS"
   duplLimit = "100"
 
+[fix]
+  [fix.commands]
+    gofmt = true
+    goimports = false
+
 [gotestcoverage]
   timeout = "10s"
   cpu = "4"

@@ -13,6 +13,28 @@ type buildTemplate struct {
 	Install    install                `toml:"install"`
 	Metalinter metalinter             `toml:"metalinter"`
 	Vars       map[string]interface{} `toml:"vars"`
+	Fix fixes `toml:"fix"`
+}
+
+type fixes struct {
+	Commands map[string]bool `toml:"commands"`
+}
+
+func (i *fixes) MergeFrom(from *fixes) {
+	if from == nil {
+		return
+	}
+	if len(from.Commands) > 0 && i.Commands == nil {
+		i.Commands = make(map[string]bool, len(from.Commands))
+	}
+	for k, v := range from.Commands {
+		i.Commands[k] = v
+	}
+}
+
+
+func (b *buildTemplate) FixesEnabled() map[string]bool {
+	return b.Fix.Commands
 }
 
 type install struct {
@@ -66,6 +88,7 @@ func (b *buildTemplate) MergeFrom(from *buildTemplate) {
 	}
 	b.Install.MergeFrom(&from.Install)
 	b.Metalinter.MergeFrom(&from.Metalinter)
+	b.Fix.MergeFrom(&from.Fix)
 	if len(from.Vars) > 0 && b.Vars == nil {
 		b.Vars = make(map[string]interface{}, len(from.Vars))
 	}

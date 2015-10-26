@@ -24,9 +24,6 @@ func (f *fixCmd) Run(ctx context.Context) error {
 	if err := f.fmtCmd("gofmt", []string{"-s", "-w"}, goFiles); err != nil {
 		return wraperr(err, "cannot gofmt correctly")
 	}
-	if err := f.fmtCmd("goimports", []string{"-w"}, goFiles); err != nil {
-		return wraperr(err, "cannot goimports correctly")
-	}
 	return nil
 }
 
