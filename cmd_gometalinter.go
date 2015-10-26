@@ -20,6 +20,8 @@ type gometalinterCmd struct {
 	metaOutput cmdOutputStreamer
 	dirsToLint []string
 	cache      *templateCache
+
+	regexParseCache map[string]*regexp.Regexp
 }
 
 var errLintFailures = errors.New("gometalinter failures found")
@@ -72,14 +74,19 @@ func sanitizeFilename(s string) string {
 	return s
 }
 
-func parseRegexes(reg []string) ([]*regexp.Regexp, error) {
+func (l *gometalinterCmd) parseRegexes(reg []string) ([]*regexp.Regexp, error) {
 	ret := make([]*regexp.Regexp, 0, len(reg))
 	for _, g := range reg {
+		if r, exists := l.regexParseCache[g]; exists {
+			ret = append(ret, r)
+			continue
+		}
 		r, err := regexp.Compile(g)
 		if err != nil {
 			return nil, wraperr(err, "regex won't compile: %s", g)
 		}
 		ret = append(ret, r)
+		l.regexParseCache[g] = r
 	}
 	return ret, nil
 }
@@ -104,10 +111,11 @@ func (l *gometalinterCmd) lintInDir(dir string, tmpl *buildTemplate) ([]string, 
 	}
 	l.verboseLog.Printf("Output of metalinter on %s: %s", dir, string(out))
 	outToIgnore := tmpl.MetalintIgnoreLines()
-	regs, err := parseRegexes(outToIgnore)
+	regs, err := l.parseRegexes(outToIgnore)
 	if err != nil {
 		return nil, wraperr(err, "was unable to parse regex output in dir %s", dir)
 	}
+	l.verboseLog.Printf("[dir=%s] | [ignores=%v]", dir, outToIgnore)
 	linesParse := bufio.NewScanner(bytes.NewBuffer(out))
 	failedLineParses := make([]string, 0, 10)
 	for linesParse.Scan() {

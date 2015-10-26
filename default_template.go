@@ -14,6 +14,10 @@ var defaultTemplate = `
     gofmt = true
     goimports = false
 
+[metalinter]
+  [metalinter.ignored]
+    unusedunderbar = "^.*:warning: _ is unused \\(deadcode\\)$"
+
 [gotestcoverage]
   timeout = "10s"
   cpu = "4"

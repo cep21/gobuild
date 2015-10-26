@@ -54,6 +54,7 @@ func (i *install) MergeFrom(from *install) {
 
 type metalinter struct {
 	Enabled map[string]bool `toml:"enabled"`
+	Ignored map[string]string `toml:"ignored"`
 }
 
 func (i *metalinter) MergeFrom(from *metalinter) {
@@ -65,6 +66,13 @@ func (i *metalinter) MergeFrom(from *metalinter) {
 	}
 	for k, v := range from.Enabled {
 		i.Enabled[k] = v
+	}
+
+	if len(from.Ignored) > 0 && i.Ignored == nil {
+		i.Ignored = make(map[string]string, len(from.Ignored))
+	}
+	for k, v := range from.Ignored {
+		i.Ignored[k] = v
 	}
 }
 
@@ -105,7 +113,13 @@ func (b *buildTemplate) TestCoverageArgs() []string {
 }
 
 func (b *buildTemplate) MetalintIgnoreLines() []string {
-	return []string{}
+	ret := make([]string, 0, len(b.Metalinter.Ignored))
+	for _, v := range b.Metalinter.Ignored {
+		if v != "" {
+			ret = append(ret, v)
+		}
+	}
+	return ret
 }
 
 func (b *buildTemplate) DuplArgs() []string {
