@@ -3,7 +3,7 @@ set -ex
 
 export GOPATH_INTO="$HOME/installed_gotools"
 
-CIRCLEUTIL_TAG="v1.7"
+CIRCLEUTIL_TAG="v1.8"
 export GOLANG_VERSION="1.5.1"
 export GO15VENDOREXPERIMENT="1"
 export GOROOT="$HOME/go_circle"
