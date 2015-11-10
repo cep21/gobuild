@@ -1,18 +1,7 @@
-machine:
-  environment:
-    GOLANG_VERSION: 1.5.1
-    GO15VENDOREXPERIMENT: 1
-    GOROOT: "$HOME/go"
-    GOPATH: "$HOME/.go"
-    CACHED_LINT_TOOLS_DIR: "$HOME/lints"
-    PATH: "$GOROOT/bin:$GOPATH/bin:$HOME/circleutil/scripts:$CACHED_LINT_TOOLS_DIR:$PATH"
-    IMPORT_PATH: "github.com/cep21/gobuild"
-    SRC_PATH: "$GOPATH/src/$IMPORT_PATH"
-
 dependencies:
   cache_directories:
     - ~/gover
-    - ~/lints
+    - ~/installed_gotools
   override:
     - ./circle.sh cache
 

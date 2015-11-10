@@ -1,17 +1,28 @@
 #!/bin/bash
 set -ex
 
-CIRCLEUTIL_TAG="v1.1"
+export GOPATH_INTO="$HOME/installed_gotools"
+
+CIRCLEUTIL_TAG="v1.7"
+export GOLANG_VERSION="1.5.1"
+export GO15VENDOREXPERIMENT="1"
+export GOROOT="$HOME/go_circle"
+export GOPATH="$HOME/.go_circle"
+export PATH="$GOROOT/bin:$GOPATH/bin:$GOPATH_INTO:$PATH"
+export IMPORT_PATH="github.com/cep21/gobuild"
+export CIRCLE_ARTIFACTS="${CIRCLE_ARTIFACTS-/tmp}"
 
 function do_cache() {
   [ ! -d "$HOME/circleutil" ] && git clone https://github.com/signalfx/circleutil.git "$HOME/circleutil"
   (
     cd "$HOME/circleutil"
+    git fetch -a -v
+    git fetch --tags
     git reset --hard $CIRCLEUTIL_TAG
   )
   . "$HOME/circleutil/scripts/common.sh"
   . "$HOME/circleutil/scripts/install_all_go_versions.sh"
-  . "$HOME/circleutil/scripts/install_gobuild_lints.sh" "$CACHED_LINT_TOOLS_DIR"
+  GOPATH_INTO=$GOPATH_INTO . "$HOME/circleutil/scripts/versioned_goget.sh" "github.com/cep21/gobuild:v1.0"
 }
 
 function do_test() {
