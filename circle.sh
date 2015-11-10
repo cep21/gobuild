@@ -4,14 +4,14 @@ set -ex
 CIRCLEUTIL_TAG="v1.0"
 
 function do_cache() {
-  git clone https://github.com/signalfx/circleutil.git "$HOME/circleutil"
+  [ ! -d "$HOME/circleutil" ] && git clone https://github.com/signalfx/circleutil.git "$HOME/circleutil"
   (
     cd "$HOME/circleutil"
     git reset --hard $CIRCLEUTIL_TAG
   )
   . "$HOME/circleutil/scripts/common.sh"
-  "$HOME/circleutil/scripts/install_all_go_versions.sh"
-  "$HOME/circleutil/scripts/install_gobuild_lints.sh"
+  . "$HOME/circleutil/scripts/install_all_go_versions.sh"
+  . "$HOME/circleutil/scripts/install_gobuild_lints.sh"
 }
 
 function do_test() {
