@@ -9,28 +9,13 @@ machine:
     IMPORT_PATH: "github.com/cep21/gobuild"
     SRC_PATH: "$GOPATH/src/$IMPORT_PATH"
 
-checkout:
-  post:
-    - git clone https://github.com/cep21/circleutil.git $HOME/circleutil
-
 dependencies:
   cache_directories:
     - ~/gover
     - ~/lints
   override:
-    - install_all_go_versions.sh
-    - install_lint_tools.sh
-    - remove_useless_cache_dirs.sh
+    - ./circle.sh cache
 
 test:
   override:
-    - copy_local_code_to_gopath.sh
-    - cd $SRC_PATH && go test .
-    - cd $SRC_PATH && go build . && ./gobuild -verbose -verbosefile $CIRCLE_ARTIFACTS/gobuildout.txt
-
-deployment:
-  release:
-    tag: /v[0-9]+(\.[0-9]+)*/
-    owner: cep21
-    commands:
-      - deploy_distributions.sh
+    - ./circle.sh test
