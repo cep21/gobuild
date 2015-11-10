@@ -11,7 +11,7 @@ function do_cache() {
   )
   . "$HOME/circleutil/scripts/common.sh"
   . "$HOME/circleutil/scripts/install_all_go_versions.sh"
-  . "$HOME/circleutil/scripts/install_gobuild_lints.sh"
+  . "$HOME/circleutil/scripts/install_gobuild_lints.sh" "$CACHED_LINT_TOOLS_DIR"
 }
 
 function do_test() {
