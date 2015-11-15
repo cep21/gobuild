@@ -21,10 +21,11 @@ type gobuildMain struct {
 	args []string
 
 	flags struct {
-		verbose     bool
-		verboseFile string
-		chunkSize   int
-		forceAbs    bool
+		verbose        bool
+		verboseFile    string
+		chunkSize      int
+		forceAbs       bool
+		filenamePrefix string
 	}
 
 	tc                templateCache
@@ -50,6 +51,7 @@ func init() {
 	flag.BoolVar(&mainInstance.flags.verbose, "verbose", false, "Add verbose log to stderr")
 	flag.StringVar(&mainInstance.flags.verboseFile, "verbosefile", "", "Will verbose log to a filename rather than stderr")
 	flag.IntVar(&mainInstance.flags.chunkSize, "chunksize", 250, "size to chunk xargs into")
+	flag.StringVar(&mainInstance.flags.filenamePrefix, "filename_prefix", "", "Prefix to append to all generated files")
 	flag.BoolVar(&mainInstance.flags.forceAbs, "abs", false, "will force abs paths for ... dirs")
 }
 
@@ -158,7 +160,7 @@ func (g *gobuildMain) dupl(ctx context.Context, dirs []string) error {
 	if err != nil {
 		return wraperr(err, "cannot load root dir template")
 	}
-	htmlOut, err := os.Create(filepath.Join(g.storageDir, "dupl.html"))
+	htmlOut, err := os.Create(filepath.Join(g.storageDir, g.flags.filenamePrefix+"dupl.html"))
 	if err != nil {
 		return wraperr(err, "cannot create coverage html file")
 	}
@@ -222,12 +224,12 @@ func (g *gobuildMain) test(ctx context.Context, dirs []string) error {
 		return wraperr(err, "cannot find *.go files in dirs")
 	}
 
-	fullCoverageFilename := filepath.Join(g.storageDir, "full_coverage_output.cover.txt")
+	fullCoverageFilename := filepath.Join(g.storageDir, g.flags.filenamePrefix+"full_coverage_output.cover.txt")
 	fullOut, err := os.Create(fullCoverageFilename)
 	if err != nil {
 		return wraperr(err, "cannot create full coverage profile file")
 	}
-	fullTestOutputFilename := filepath.Join(g.storageDir, "full_test_output.txt")
+	fullTestOutputFilename := filepath.Join(g.storageDir, g.flags.filenamePrefix+"full_test_output.txt")
 	fullTestStdout, err := os.Create(fullTestOutputFilename)
 	if err != nil {
 		return wraperr(err, "cannot create full test output file")
@@ -248,7 +250,7 @@ func (g *gobuildMain) test(ctx context.Context, dirs []string) error {
 	e2 := fullOut.Close()
 	var e3 error
 	if e2 == nil {
-		htmlFilename := filepath.Join(g.storageDir, "full_coverage_output.cover.html")
+		htmlFilename := filepath.Join(g.storageDir, g.flags.filenamePrefix+"full_coverage_output.cover.html")
 		e3 = g.genCoverageHTML(ctx, fullCoverageFilename, htmlFilename)
 	}
 	e4 := fullTestStdout.Close()
@@ -261,10 +263,12 @@ func (g *gobuildMain) test(ctx context.Context, dirs []string) error {
 
 func (g *gobuildMain) genJunitXML(ctx context.Context, fullTestOutputFilename string) error {
 	junitXMLOutputFileDir := filepath.Join(g.testrunStorageDir, "gotest")
-	if err := os.Mkdir(junitXMLOutputFileDir, 0777); err != nil {
-		return wraperr(err, "cannot make temp dir %s", junitXMLOutputFileDir)
+	if _, err := os.Stat(junitXMLOutputFileDir); err != nil {
+		if err := os.Mkdir(junitXMLOutputFileDir, 0777); err != nil {
+			return wraperr(err, "cannot make temp dir %s", junitXMLOutputFileDir)
+		}
 	}
-	xmlOutFilename := filepath.Join(junitXMLOutputFileDir, "junit-gotest.xml")
+	xmlOutFilename := filepath.Join(junitXMLOutputFileDir, g.flags.filenamePrefix+"junit-gotest.xml")
 	xmlOutFile, err := os.Create(xmlOutFilename)
 	if err != nil {
 		return wraperr(err, "cannot open xml run output file")
