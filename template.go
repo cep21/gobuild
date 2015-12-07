@@ -53,8 +53,9 @@ func (i *install) MergeFrom(from *install) {
 }
 
 type metalinter struct {
-	Enabled map[string]bool   `toml:"enabled"`
-	Ignored map[string]string `toml:"ignored"`
+	Enabled map[string]bool        `toml:"enabled"`
+	Ignored map[string]string      `toml:"ignored"`
+	Vars    map[string]interface{} `toml:"vars"`
 }
 
 func (i *metalinter) MergeFrom(from *metalinter) {
@@ -74,11 +75,20 @@ func (i *metalinter) MergeFrom(from *metalinter) {
 	for k, v := range from.Ignored {
 		i.Ignored[k] = v
 	}
+	i.mergeVars(from)
 }
 
-var defaultMetalinterArgs = []string{"-t", "--disable-all"}
+func (i *metalinter) mergeVars(from *metalinter) {
+	if len(from.Vars) > 0 && i.Vars == nil {
+		i.Vars = make(map[string]interface{}, len(from.Enabled))
+	}
+	for k, v := range from.Vars {
+		i.Vars[k] = v
+	}
+}
 
 func (b *buildTemplate) MetalintArgs() []string {
+	defaultMetalinterArgs := varStrArray(b.Metalinter.Vars, "args")
 	ret := make([]string, 0, len(defaultMetalinterArgs)+len(b.Metalinter.Enabled))
 	ret = append(ret, defaultMetalinterArgs...)
 	for linterName, enabled := range b.Metalinter.Enabled {
@@ -138,8 +148,8 @@ func (b *buildTemplate) varStr(name string) string {
 	return b.Vars[name].(string)
 }
 
-func (b *buildTemplate) varStrArray(name string) []string {
-	ignores, exists := b.Vars[name]
+func varStrArray(vars map[string]interface{}, name string) []string {
+	ignores, exists := vars[name]
 	if !exists {
 		return []string{}
 	}
@@ -152,6 +162,10 @@ func (b *buildTemplate) varStrArray(name string) []string {
 		ret = append(ret, a.(string))
 	}
 	return ret
+}
+
+func (b *buildTemplate) varStrArray(name string) []string {
+	return varStrArray(b.Vars, name)
 }
 
 var defaultLoadedTemplate buildTemplate

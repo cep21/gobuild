@@ -16,6 +16,8 @@ var defaultTemplate = `
     goimports = false
 
 [metalinter]
+  [metalinter.vars]
+    args = ["-t", "--disable-all", "--vendor", "--min-confidence=.3", "--deadline=20s"]
   [metalinter.ignored]
     unusedunderbar = "^.*:warning: _ is unused \\(deadcode\\)$"
 
