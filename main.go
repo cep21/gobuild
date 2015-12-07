@@ -240,7 +240,6 @@ func (g *gobuildMain) test(ctx context.Context, dirs []string) error {
 		coverProfileOutTo:   inDirStreamer(g.storageDir, ".cover.txt"),
 		testStdoutOutputTo:  &myselfOutput{&nopCloseWriter{os.Stdout}},
 		testStderrOutputTo:  &myselfOutput{&nopCloseWriter{os.Stderr}},
-		requiredCoverage:    0,
 		verboseLog:          g.verboseLog,
 		errLog:              g.errLog,
 		fullCoverageOutput:  fullOut,

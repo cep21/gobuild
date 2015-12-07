@@ -148,6 +148,10 @@ func (b *buildTemplate) varStr(name string) string {
 	return b.Vars[name].(string)
 }
 
+func (b *buildTemplate) varFloat(name string) float64 {
+	return b.Vars[name].(float64)
+}
+
 func varStrArray(vars map[string]interface{}, name string) []string {
 	ignores, exists := vars[name]
 	if !exists {

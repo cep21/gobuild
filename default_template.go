@@ -8,7 +8,7 @@ var defaultTemplate = `
   artifactsEnv = "CIRCLE_ARTIFACTS"
   testReportEnv = "CIRCLE_TEST_REPORTS"
   duplLimit = "100"
-  testCoverage = 0
+  testCoverage = 0.0
 
 [fix]
   [fix.commands]

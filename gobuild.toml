@@ -1,5 +1,6 @@
 [vars]
   ignoreDirs = [".git", "_example", "internal"]
+  testCoverage = 1.0
 
 [metalinter]
   [metalinter.enabled]

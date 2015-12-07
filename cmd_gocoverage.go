@@ -20,7 +20,6 @@ type goCoverageCheck struct {
 	coverProfileOutTo  cmdOutputStreamer
 	testStdoutOutputTo cmdOutputStreamer
 	testStderrOutputTo cmdOutputStreamer
-	requiredCoverage   float64
 	verboseLog         logger
 	errLog             logger
 
@@ -142,9 +141,11 @@ func (g *goCoverageCheck) runForDir(dir string) (string, error) {
 	if err != nil {
 		return coverprofileName, wraperr(err, "unable to calculate coverage")
 	}
-	if coverage+.001 < g.requiredCoverage {
-		return coverprofileName, fmt.Errorf("code coverage %f < required %f for %s", coverage, g.requiredCoverage, dir)
+	requiredCoverage := template.varFloat("testCoverage")
+	if coverage+.001 < requiredCoverage {
+		return coverprofileName, fmt.Errorf("code coverage %f < required %f for %s", coverage, requiredCoverage, dir)
 	}
+	g.verboseLog.Printf("Compared coverage %f vs %f for %s", coverage, requiredCoverage, dir)
 	return coverprofileName, nil
 }
 
