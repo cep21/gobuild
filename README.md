@@ -46,6 +46,51 @@ gobuild fix
 gobuild -verbose -verbosefile build_output.txt
 ```
 
+## Configuration
+
+Configuration options are loaded from a `gobuild.toml` file in the root of the project and merged with the default configuration.
+
+### Default configuration
+```toml
+[vars]
+  ignoreDirs = [".git", "Godeps", "vendor"]
+  stopLoadingParent = [".git"]
+  buildFlags = ["."]
+  artifactsEnv = "CIRCLE_ARTIFACTS"
+  testReportEnv = "CIRCLE_TEST_REPORTS"
+  duplLimit = "100"
+  testCoverage = 0.0
+
+[fix]
+  [fix.commands]
+    gofmt = true
+    goimports = false
+
+[metalinter]
+  [metalinter.vars]
+    args = ["-t", "--disable-all", "--vendor", "--min-confidence=.3", "--deadline=20s"]
+  [metalinter.ignored]
+    unusedunderbar = "^.*:warning: _ is unused \\(deadcode\\)$"
+
+[gotestcoverage]
+  timeout = "10s"
+  cpu = "4"
+  parallel = 8
+  race = true
+  covermode = "atomic"
+
+[install]
+  [install.goget]
+    gometalinter = "github.com/alecthomas/gometalinter"
+    golint = "github.com/golang/lint/golint"
+    go-junit-report = "github.com/jstemmer/go-junit-report"
+    goimports = "golang.org/x/tools/cmd/goimports"
+    gocyclo = "github.com/alecthomas/gocyclo"
+    aligncheck = "github.com/opennota/check/cmd/aligncheck"
+    varcheck = "github.com/opennota/check/cmd/varcheck"
+    dupl = "github.com/mibk/dupl"
+```
+
 ## Why not just use
 
 ### go build
