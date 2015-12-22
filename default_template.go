@@ -38,4 +38,5 @@ var defaultTemplate = `
     aligncheck = "github.com/opennota/check/cmd/aligncheck"
     varcheck = "github.com/opennota/check/cmd/varcheck"
     dupl = "github.com/mibk/dupl"
+    deadcode = "github.com/remyoudompheng/go-misc/deadcode"
 `

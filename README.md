@@ -89,6 +89,7 @@ Configuration options are loaded from a `gobuild.toml` file in the root of the p
     aligncheck = "github.com/opennota/check/cmd/aligncheck"
     varcheck = "github.com/opennota/check/cmd/varcheck"
     dupl = "github.com/mibk/dupl"
+    deadcode = "github.com/remyoudompheng/go-misc/deadcode"
 ```
 
 ## Why not just use
