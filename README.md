@@ -56,6 +56,7 @@ Configuration options are loaded from a `gobuild.toml` file in the root of the p
   ignoreDirs = [".git", "Godeps", "vendor"]
   stopLoadingParent = [".git"]
   buildFlags = ["."]
+  testFlags = ["-covermode", "atomic", "-race", "-timeout", "10s", "-cpu", "4", "-parallel", "8"]
   artifactsEnv = "CIRCLE_ARTIFACTS"
   testReportEnv = "CIRCLE_TEST_REPORTS"
   duplLimit = "100"
