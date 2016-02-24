@@ -39,5 +39,10 @@ var defaultTemplate = `
     aligncheck = "github.com/opennota/check/cmd/aligncheck"
     varcheck = "github.com/opennota/check/cmd/varcheck"
     dupl = "github.com/mibk/dupl"
-    deadcode = "github.com/remyoudompheng/go-misc/deadcode"
+    deadcode = "github.com/tsenart/deadcode"
+    unconvert = "github.com/mdempsky/unconvert"
+    errcheck = "github.com/kisielk/errcheck"
+    interfacer = "github.com/mvdan/interfacer/cmd/interfacer"
+    ineffassign = "github.com/gordonklaus/ineffassign"
+    structcheck = "github.com/opennota/check/cmd/structcheck"
 `
